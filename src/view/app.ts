@@ -4,10 +4,10 @@ import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as companion from "../companion";
-import * as idb from "../idb";
+import { type Device, shutdown } from "../device";
 import { type InputEvent, type Key, type Mouse, readEvents } from "../input";
+import * as keys from "../keys";
 import * as kitty from "../kitty";
-import * as sim from "../sim";
 import { cellWidth, type Size, Terminal } from "../term";
 import { animate } from "./animate";
 import { drawChrome } from "./chrome";
@@ -18,7 +18,7 @@ import { Queue } from "./queue";
 import { markShutDown, panelCol, type Sidebar, sidebarKey, sidebarMouse, toggleSidebar } from "./sidebar";
 import { dark, light, luminance, type Palette, sgr } from "./theme";
 
-export type Options = { udids: string[]; agent: string; fps: number };
+export type Options = { ids: string[]; agent: string; fps: number };
 
 export class Quit extends Error {}
 
@@ -40,8 +40,8 @@ const wheelWindow = 100;
 const wheelStep = 30;
 
 const namedKeys: Record<string, number> = {
-  enter: idb.KeyEnter, backspace: idb.KeyBackspace, tab: idb.KeyTab, esc: idb.KeyEscape,
-  up: idb.KeyUp, down: idb.KeyDown, left: idb.KeyLeft, right: idb.KeyRight,
+  enter: keys.KeyEnter, backspace: keys.KeyBackspace, tab: keys.KeyTab, esc: keys.KeyEscape,
+  up: keys.KeyUp, down: keys.KeyDown, left: keys.KeyLeft, right: keys.KeyRight,
 };
 
 export async function run(opts: Options): Promise<void> {
@@ -80,7 +80,7 @@ export class App {
   phones: Phone[] = [];
   focus: Phone | null = null;
   solo = false;
-  private bin = "";
+  private bin: Promise<string> | null = null;
   private added = 0;
   private syncs = 0;
   sidebar: Sidebar | null = null;
@@ -111,7 +111,6 @@ export class App {
     await this.detectTheme();
     this.message("Looking for simulators…");
     const devices = await chooseDevices(this);
-    this.bin = await companion.binary(this.signal, (text) => this.message(text));
     this.focus = this.add(devices)[0];
     this.updateSize();
     this.relayout();
@@ -165,18 +164,28 @@ export class App {
     clearTimeout(this.wheelTimer);
   }
 
+  // companionBin fetches idb_companion the first time a simulator needs it,
+  // and again after a failed download.
+  private companionBin(progress: (text: string) => void): Promise<string> {
+    this.bin ??= companion.binary(this.signal, progress).catch((err) => {
+      this.bin = null;
+      throw err;
+    });
+    return this.bin;
+  }
+
   // add shows a placeholder for each device at once and connects them in the
-  // background, so the other phones stay usable while a simulator boots. Each
+  // background, so the other phones stay usable while a device boots. Each
   // phone gets image ids no other phone has used, so a closed phone's images
   // can't be mistaken for a new one's.
-  add(devices: sim.Device[]): Phone[] {
+  add(devices: Device[]): Phone[] {
     const phones = devices.map((d) => {
       const p = new Phone(d);
       p.cancelConnect = new AbortController();
       p.placer.base = this.added * 2;
       p.border.base = 1_000_000 + this.added * 2;
       this.added++;
-      dial(AbortSignal.any([this.signal, p.cancelConnect.signal]), this.bin, p, d).then((c) =>
+      dial(AbortSignal.any([this.signal, p.cancelConnect.signal]), () => this.companionBin((text) => this.flash(text)), p, d).then((c) =>
         this.events.push({ kind: "dialed", c }),
       );
       return p;
@@ -185,8 +194,8 @@ export class App {
     return phones;
   }
 
-  // dialDone fills in a phone once its simulator has booted and its companion
-  // answers, or shows why it couldn't.
+  // dialDone fills in a phone once its device has booted and answers, or
+  // shows why it couldn't.
   private async dialDone(c: Connection): Promise<void> {
     const p = c.p;
     if (!this.phones.includes(p)) {
@@ -198,10 +207,8 @@ export class App {
     if (c.err) {
       p.failed = c.err.message;
     } else {
-      p.comp = c.comp!;
-      p.idb = c.client!;
-      p.screen = c.screen!;
-      p.osVersion = c.osVersion!;
+      p.session = c.session!;
+      p.screen = c.session!.screen;
     }
     this.relayout();
   }
@@ -402,7 +409,7 @@ export class App {
       case "key":
         return this.key(ev);
       case "paste":
-        if (!this.sidebar && this.usable(this.focus!)) this.report(this.focus!.idb!.text(ev.text));
+        if (!this.sidebar && this.usable(this.focus!)) this.report(this.focus!.session!.text(ev.text));
         return;
       case "mouse":
         return this.mouse(ev);
@@ -429,7 +436,7 @@ export class App {
     }
     const p = this.focus!;
     if (!this.usable(p)) return;
-    const c = p.idb!;
+    const c = p.session!;
     switch (k.name) {
       case "ctrl+b":
         this.report(c.button("HOME"));
@@ -475,13 +482,13 @@ export class App {
       p.touching = true;
       p.lastMove = performance.now();
       const [x, y] = p.point(m.x, m.y);
-      this.report(p.idb!.touch(x, y, true));
+      this.report(p.session!.touch(x, y, true));
     } else if (m.motion && m.button === 0) {
       for (const p of this.phones) {
         if (p.touching && performance.now() - p.lastMove >= moveInterval) {
           p.lastMove = performance.now();
           const [x, y] = p.point(m.x, m.y);
-          this.report(p.idb!.touch(x, y, true));
+          this.report(p.session!.touch(x, y, true));
         }
       }
     } else if (m.release) {
@@ -489,7 +496,7 @@ export class App {
         if (p.touching) {
           p.touching = false;
           const [x, y] = p.point(m.x, m.y);
-          this.report(p.idb!.touch(x, y, false));
+          this.report(p.session!.touch(x, y, false));
         }
       }
     }
@@ -508,7 +515,7 @@ export class App {
     const h = p.screen.heightPoints;
     const y0 = Math.min(Math.max(this.wheelY - d / 2, 1), h - 1);
     const y1 = Math.min(Math.max(this.wheelY + d / 2, 1), h - 1);
-    this.report(p.idb!.swipe(this.wheelX, y0, this.wheelX, y1, 0.08));
+    this.report(p.session!.swipe(this.wheelX, y0, this.wheelX, y1, 0.08));
   }
 
   // usable reports whether a phone takes input yet, and says why not.
@@ -519,15 +526,15 @@ export class App {
     return false;
   }
 
-  // removePhone takes a phone out of the pane and shuts its simulator down.
+  // removePhone takes a phone out of the pane and shuts its device down.
   // The shutdown runs in the background, because it takes a second or two.
   removePhone(p: Phone): void {
     const i = this.phones.indexOf(p);
     this.phones.splice(i, 1);
     if (this.focus === p) this.focus = this.phones[Math.min(i, this.phones.length - 1)];
     if (this.phones.length < 2) this.solo = false;
-    void p.close().then(() => sim.shutdown(p.device.udid));
-    markShutDown(this, p.device.udid);
+    void p.close().then(() => shutdown(p.device));
+    markShutDown(this, p.device.id);
     this.flash(`Shutting down ${p.device.name}`);
   }
 
@@ -567,7 +574,7 @@ export class App {
   private async sendScreenshot(p: Phone): Promise<void> {
     let path: string;
     try {
-      const png = await p.idb!.screenshot();
+      const png = await p.session!.screenshot();
       const dir = join(tmpdir(), "rexsim");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       const name = p.device.name.replace(/[ /]/g, "-");

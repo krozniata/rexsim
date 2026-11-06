@@ -1,9 +1,10 @@
+import { type Device, devices as listDevices } from "../device";
 import type { Key, Mouse } from "../input";
-import * as sim from "../sim";
 import { cellHeight, cellWidth } from "../term";
 import { animate } from "./animate";
 import type { App } from "./app";
-import { clip, drawChrome, width } from "./chrome";
+import { clip, drawChrome, phoneAccent, platformAccent, width } from "./chrome";
+import { entryOf, groupEntries, platformName, scrollTo } from "./groups";
 import { footerRows } from "./layout";
 import type { Phone } from "./phone";
 import { sgr } from "./theme";
@@ -11,8 +12,9 @@ import { sgr } from "./theme";
 const sidebarCols = 34;
 const listTop = 4;
 
-// Sidebar lists every simulator beside the phones, to show or hide them.
-export type Sidebar = { devices: sim.Device[]; sel: number; offset: number };
+// Sidebar lists every simulator and emulator beside the phones, to show or
+// hide them.
+export type Sidebar = { devices: Device[]; sel: number; offset: number };
 
 // panelCol is the column where the sidebar starts, or the pane's width when
 // it is closed.
@@ -28,9 +30,9 @@ export async function toggleSidebar(a: App): Promise<void> {
     });
     return;
   }
-  let devices: sim.Device[];
+  let devices: Device[];
   try {
-    devices = await sim.devices(a.signal);
+    devices = await listDevices(a.signal);
   } catch (err) {
     a.flash((err as Error).message);
     return;
@@ -40,8 +42,8 @@ export async function toggleSidebar(a: App): Promise<void> {
   });
 }
 
-function phoneFor(a: App, udid: string): Phone | null {
-  return a.phones.find((p) => p.device.udid === udid) ?? null;
+function phoneFor(a: App, id: string): Phone | null {
+  return a.phones.find((p) => p.device.id === id) ?? null;
 }
 
 // toggleDevice shows the selected simulator, booting it if needed, or hides
@@ -51,7 +53,7 @@ async function toggleDevice(a: App): Promise<void> {
   const sb = a.sidebar!;
   if (sb.devices.length === 0) return;
   const d = sb.devices[sb.sel];
-  const p = phoneFor(a, d.udid);
+  const p = phoneFor(a, d.id);
   if (p) {
     if (a.phones.length === 1) {
       a.flash("Keep one simulator open, or quit with ⌃]");
@@ -75,8 +77,8 @@ async function toggleDevice(a: App): Promise<void> {
 }
 
 // markShutDown keeps the list's state in step when a phone closes.
-export function markShutDown(a: App, udid: string): void {
-  for (const d of a.sidebar?.devices ?? []) if (d.udid === udid) d.booted = false;
+export function markShutDown(a: App, id: string): void {
+  for (const d of a.sidebar?.devices ?? []) if (d.id === id) d.booted = false;
 }
 
 // sidebarKey handles a key while the list is open and reports whether it
@@ -117,9 +119,9 @@ export async function sidebarMouse(a: App, m: Mouse): Promise<boolean> {
     drawChrome(a);
   } else if (m.button === 0) {
     const row = Math.trunc(m.y / cellHeight(a.size));
-    const i = sb.offset + Math.trunc((row - listTop) / 2);
-    if (row >= listTop && i < sb.devices.length) {
-      sb.sel = i;
+    const e = groupEntries(sb.devices, false)[sb.offset + Math.trunc((row - listTop) / 2)];
+    if (row >= listTop && e?.kind === "device") {
+      sb.sel = e.i;
       await toggleDevice(a);
     }
   }
@@ -148,24 +150,33 @@ export function drawSidebar(a: App, sb: Sidebar | null, col: number, clearFrom: 
     a.t.write("\x1b[0m");
   };
   for (let row = 1; row < s.rows - footerRows; row++) line(row, edge);
-  line(2, edge, ["Simulators", sgr(a.pal.text, "1")], [`  ${sb.devices.length}`, sgr(a.pal.dim)]);
+  line(2, edge, ["Devices", sgr(a.pal.text, "1")], [`  ${sb.devices.length}`, sgr(a.pal.dim)]);
 
+  // Every entry takes two rows; a header sits on the lower one, so a blank
+  // row separates it from the group above.
+  const list = groupEntries(sb.devices, false);
   const visible = Math.max(1, Math.trunc((s.rows - footerRows - listTop) / 2));
-  if (sb.sel < sb.offset) sb.offset = sb.sel;
-  else if (sb.sel >= sb.offset + visible) sb.offset = sb.sel - visible + 1;
-  for (let i = sb.offset; i < sb.devices.length && i < sb.offset + visible; i++) {
+  sb.offset = scrollTo(list, entryOf(list, sb.sel), sb.offset, visible);
+  for (let k = sb.offset; k < list.length && k < sb.offset + visible; k++) {
+    const e = list[k];
+    const r = listTop + (k - sb.offset) * 2;
+    if (e.kind === "header") {
+      line(r + 1, edge, [platformName[e.platform], sgr(platformAccent(a, e.platform), "1")], [`  ${e.count}`, sgr(a.pal.dim)]);
+    }
+    if (e.kind !== "device") continue;
+    const i = e.i;
     const d = sb.devices[i];
     const bg = i === sb.sel ? [a.pal.chip] : [];
     const style = (...params: string[]) => sgr(...bg, ...params);
     let mark = "○ ";
     let markStyle = style(a.pal.dim);
-    if (phoneFor(a, d.udid)) {
+    const shown = phoneFor(a, d.id);
+    if (shown) {
       mark = "● ";
-      markStyle = style(a.pal.accent);
+      markStyle = style(phoneAccent(a, shown));
     } else if (d.booted) {
       mark = "● ";
     }
-    const r = listTop + (i - sb.offset) * 2;
     line(r, edge, [mark, markStyle], [fit(d.name, inner - 2), style(a.pal.text, "1")]);
     line(r + 1, edge, ["  ", style()], [fit(d.runtime, inner - 2), style(a.pal.dim)]);
   }

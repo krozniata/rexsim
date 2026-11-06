@@ -1,18 +1,15 @@
-import * as companion from "../companion";
-import { Client, type Frame, type Screen } from "../idb";
+import { connect, type Device, type Frame, type Screen, type Session } from "../device";
 import { Placer } from "../kitty";
-import * as sim from "../sim";
 import { emptyBox, type Box } from "./layout";
 import { cornerMask, screenRadius, toRGBA } from "./shapes";
 
 // ViewFrame is one screen, converted to RGBA with rounded corners.
 export type ViewFrame = { width: number; height: number; rgba: Uint8Array };
 
-// Phone is one simulator in the pane, with its own companion and stream.
+// Phone is one simulator or emulator in the pane, with its own session and
+// stream.
 export class Phone {
-  osVersion = "";
-  comp: companion.Companion | null = null;
-  idb: Client | null = null;
+  session: Session | null = null;
   screen: Screen = { width: 0, height: 0, widthPoints: 0, heightPoints: 0 };
 
   private latest: Frame | null = null;
@@ -37,14 +34,13 @@ export class Phone {
   touching = false;
   lastMove = 0;
 
-  constructor(public device: sim.Device) {}
+  constructor(public device: Device) {}
 
   async close(): Promise<void> {
     this.latest = null;
     this.cancelConnect?.abort();
     this.stopStream?.abort();
-    this.idb?.close();
-    await this.comp?.close();
+    await this.session?.close();
     this.placer.close();
     this.border.close();
   }
@@ -55,7 +51,7 @@ export class Phone {
     this.stopStream = stop;
     this.lastSum = 0;
     const streamSignal = AbortSignal.any([signal, stop.signal]);
-    this.idb!.stream(streamSignal, fps, this.scale, this.screen, (f) => this.onFrame(f, ready)).then((err) => {
+    this.session!.stream(streamSignal, fps, this.scale, (f) => this.onFrame(f, ready)).then((err) => {
       if (!streamSignal.aborted) failed(err);
     });
   }
@@ -71,7 +67,7 @@ export class Phone {
   // onFrame only keeps the newest raw frame. Everything runs on one thread,
   // unlike Go's goroutine per stream, so the conversion waits for takeLatest
   // and is skipped for frames that a newer one replaces before they're drawn.
-  // The companion sends frames at a steady rate even when nothing changes,
+  // A companion sends frames at a steady rate even when nothing changes,
   // so identical ones are dropped.
   private onFrame(f: Frame, ready: () => void): void {
     const sum = Bun.hash(f.pix);
@@ -86,9 +82,9 @@ export class Phone {
     const f = this.latest;
     if (!f) return null;
     this.latest = null;
-    const r = Math.trunc(screenRadius(f.width / f.height) * f.width);
+    const r = Math.trunc(screenRadius(f.width / f.height, this.device.platform) * f.width);
     if (r !== this.corners.r) this.corners = { r, mask: cornerMask(r) };
-    return { width: f.width, height: f.height, rgba: toRGBA(f.pix, f.width, f.height, f.stride, this.corners.mask, r) };
+    return { width: f.width, height: f.height, rgba: toRGBA(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra) };
   }
 
   // aspect is the phone's width over its height: the frame's once one
@@ -121,34 +117,18 @@ export class Phone {
 
 // Connection is the result of dial, handed to the main loop, which owns the
 // phone's fields.
-export type Connection = {
-  p: Phone;
-  comp?: companion.Companion;
-  client?: Client;
-  osVersion?: string;
-  screen?: Screen;
-  err?: Error;
-};
+export type Connection = { p: Phone; session?: Session; err?: Error };
 
 export async function closeConnection(c: Connection): Promise<void> {
-  c.client?.close();
-  await c.comp?.close();
+  await c.session?.close();
 }
 
-// dial boots a simulator if needed and connects a companion to it. It
-// doesn't touch the phone.
-export async function dial(signal: AbortSignal, bin: string, p: Phone, d: sim.Device): Promise<Connection> {
-  const c: Connection = { p };
+// dial boots a device if needed and connects to it. It doesn't touch the
+// phone.
+export async function dial(signal: AbortSignal, companionBin: () => Promise<string>, p: Phone, d: Device): Promise<Connection> {
   try {
-    if (!d.booted) await sim.boot(signal, d.udid);
-    c.comp = await companion.start(signal, bin, d.udid);
-    c.client = new Client(c.comp.socket);
-    const desc = await c.client.describe(signal);
-    c.screen = desc.screen;
-    c.osVersion = desc.osVersion.replace(/^iOS/, "").trim();
-    return c;
+    return { p, session: await connect(signal, d, companionBin) };
   } catch (err) {
-    await closeConnection(c);
     return { p, err: err instanceof Error ? err : new Error(String(err)) };
   }
 }

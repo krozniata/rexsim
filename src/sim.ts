@@ -1,10 +1,5 @@
 // Lists and boots simulators with simctl.
-
-export type Device = { udid: string; name: string; runtime: string; booted: boolean };
-
-export function label(d: Device): string {
-  return `${d.name} · ${d.runtime}`;
-}
+import type { Device } from "./device";
 
 async function run(signal: AbortSignal, args: string[]): Promise<{ code: number; out: string }> {
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", signal });
@@ -22,7 +17,7 @@ export async function devices(signal: AbortSignal): Promise<Device[]> {
   for (const [runtime, ds] of Object.entries(list.devices)) {
     const name = runtimeName(runtime);
     if (!name) continue;
-    for (const d of ds) result.push({ udid: d.udid, name: d.name, runtime: name, booted: d.state === "Booted" });
+    for (const d of ds) result.push({ id: d.udid, name: d.name, runtime: name, booted: d.state === "Booted", platform: "ios" });
   }
   return result.sort((a, b) => {
     if (a.booted !== b.booted) return a.booted ? -1 : 1;

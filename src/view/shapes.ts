@@ -1,9 +1,14 @@
+import type { Platform } from "../device";
 import type { Image } from "../kitty";
 
 // screenRadius is a phone's screen corner radius as a fraction of its width.
 // The framebuffer is square, so rexsim rounds it the way the hardware is.
-// iPhones are about 55 points on 402; iPads about 18 on 820.
-export function screenRadius(aspect: number): number {
+// iPhones are about 55 points on 402; iPads about 18 on 820. An emulator's
+// system UI assumes square corners and puts the status bar right against
+// them, so its rounding stays small enough to keep the clock whole, and
+// follows the short side so a turned screen rounds the same.
+export function screenRadius(aspect: number, platform: Platform = "ios"): number {
+  if (platform === "android") return 0.035 / Math.max(1, aspect);
   return aspect < 0.6 ? 0.137 : 0.022;
 }
 
@@ -20,23 +25,31 @@ export function cornerMask(r: number): Uint8Array {
   return m;
 }
 
-// toRGBA converts BGRA pixels, whose rows are stride bytes apart, to tightly
-// packed RGBA, and makes the corners outside the screen's radius transparent.
-// It swaps channels a whole little-endian pixel at a time, which needs the
-// source 4-byte aligned; protobuf hands over the frame at any offset, so a
-// misaligned one is copied first. The copy uses the Uint8Array constructor
-// because Buffer's slice returns a view.
-export function toRGBA(bgra: Uint8Array, width: number, height: number, stride: number, mask: Uint8Array, r: number): Uint8Array<ArrayBuffer> {
+// toRGBA converts BGRA pixels, or RGBA ones when bgra is false, whose rows
+// are stride bytes apart, to tightly packed opaque RGBA, and makes the
+// corners outside the screen's radius transparent. It works a whole
+// little-endian pixel at a time, which needs the source 4-byte aligned;
+// protobuf hands over the frame at any offset, so a misaligned one is copied
+// first. The copy uses the Uint8Array constructor because Buffer's slice
+// returns a view.
+export function toRGBA(
+  pix: Uint8Array, width: number, height: number, stride: number, mask: Uint8Array, r: number, bgra = true,
+): Uint8Array<ArrayBuffer> {
   const dst = new Uint8Array(width * height * 4);
   const d32 = new Uint32Array(dst.buffer);
-  const src = bgra.byteOffset % 4 === 0 ? bgra : new Uint8Array(bgra);
+  const src = pix.byteOffset % 4 === 0 ? pix : new Uint8Array(pix);
   const s32 = new Uint32Array(src.buffer, src.byteOffset, src.byteLength >>> 2);
   const rowWords = stride >>> 2;
   let i = 0;
   for (let y = 0; y < height; y++) {
-    for (let j = y * rowWords, end = j + width; j < end; j++) {
-      const v = s32[j];
-      d32[i++] = 0xff000000 | ((v & 0xff) << 16) | (v & 0xff00) | ((v >>> 16) & 0xff);
+    const end = y * rowWords + width;
+    if (bgra) {
+      for (let j = y * rowWords; j < end; j++) {
+        const v = s32[j];
+        d32[i++] = 0xff000000 | ((v & 0xff) << 16) | (v & 0xff00) | ((v >>> 16) & 0xff);
+      }
+    } else {
+      for (let j = y * rowWords; j < end; j++) d32[i++] = s32[j] | 0xff000000;
     }
   }
   const maskWidth = r;

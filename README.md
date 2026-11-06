@@ -1,16 +1,21 @@
 <h1 align="center">rexsim</h1>
 
-<p align="center">iOS simulators in a <a href="https://www.superlogical.com/rex">Rex</a> pane, right next to your coding agent</p>
+<p align="center">iOS simulators and Android emulators in a <a href="https://www.superlogical.com/rex">Rex</a> pane, right next to your coding agent</p>
 
 ![rexsim running in Rex](docs/screenshot.png)
 
 ## Requirements
 
 - Apple Silicon Mac
-- Xcode with at least one iOS simulator
+- Xcode with at least one iOS simulator, or Android Studio with at least one
+  emulator (AVD)
 - [Bun](https://bun.sh) 1.4 or later
 - [Rex](https://www.superlogical.com/rex)
-- Meta's [idb_companion](https://github.com/facebook/idb), which rexsim downloads on first run
+- For simulators, Meta's [idb_companion](https://github.com/facebook/idb), which rexsim downloads on first run
+
+rexsim finds the Android SDK through `ANDROID_HOME`, or in `~/Library/Android/sdk`.
+It boots emulators without a window, and connects to ones that are already
+running through the emulator's own gRPC service.
 
 ## Install
 
@@ -28,6 +33,7 @@ Open it in Rex with <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>I</kbd>
 | --- | --- |
 | ⌃B | Home |
 | ⌃L | Lock |
+| Esc | Back, on Android |
 | ⌃S | Screenshot to the agent |
 | ⌃F | Focus one simulator |
 | ⌃N | Next simulator |

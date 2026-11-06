@@ -1,45 +1,56 @@
-import * as sim from "../sim";
+import { type Device, find, devices as listDevices, label as deviceLabel } from "../device";
 import { cellHeight } from "../term";
 import { type App, Quit } from "./app";
-import { width } from "./chrome";
+import { platformAccent, width } from "./chrome";
+import { entryOf, groupEntries, platformName, scrollTo } from "./groups";
 import { sgr } from "./theme";
 
-export async function chooseDevices(a: App): Promise<sim.Device[]> {
-  const devices = await sim.devices(a.signal);
-  if (a.opts.udids.length > 0) {
-    return a.opts.udids.map((udid) => {
-      const d = devices.find((d) => d.udid === udid);
-      if (!d) throw new Error(`no available simulator has UDID ${udid}`);
+export async function chooseDevices(a: App): Promise<Device[]> {
+  const devices = await listDevices(a.signal);
+  if (a.opts.ids.length > 0) {
+    return a.opts.ids.map((id) => {
+      const d = find(devices, id);
+      if (!d) throw new Error(`no simulator or emulator is called ${id}`);
       return d;
     });
   }
-  if (devices.length === 0) throw new Error("no iOS simulators are available; add one in Xcode");
+  if (devices.length === 0) {
+    throw new Error("no simulators or emulators are available; add one in Xcode or Android Studio");
+  }
   const booted = devices.filter((d) => d.booted);
   return booted.length > 0 ? booted : pick(a, devices);
 }
 
-// pick lists the simulators when none is booted. Space marks one or more and
-// Enter shows them, or the selected one when none is marked; a digit or a
+// pick lists the simulators and emulators, grouped by platform, when none is
+// booted. Space marks one or more and Enter shows them, or the selected one
+// when none is marked; a digit, which counts the devices on screen, or a
 // click shows only that one.
-async function pick(a: App, devices: sim.Device[]): Promise<sim.Device[]> {
+async function pick(a: App, devices: Device[]): Promise<Device[]> {
   const top = 5;
   const marked = devices.map(() => false);
-  const labelWidth = Math.max(...devices.map((d) => width(sim.label(d))));
+  const labelWidth = Math.max(...devices.map((d) => width(deviceLabel(d))));
+  const list = groupEntries(devices, true);
   let sel = 0;
   let offset = 0;
   for (;;) {
     const visible = Math.max(1, a.size.rows - top - 1);
-    if (sel < offset) offset = sel;
-    else if (sel >= offset + visible) offset = sel - visible + 1;
-    a.t.write(`\x1b[0m\x1b[2J\x1b[2;3H${sgr(a.pal.accent, "1")}◆ rexsim${sgr(a.pal.dim)}  choose simulators`);
+    offset = scrollTo(list, entryOf(list, sel), offset, visible);
+    const shown = list.slice(offset, offset + visible);
+    a.t.write(`\x1b[0m\x1b[2J\x1b[2;3H${sgr(a.pal.accent, "1")}◆ rexsim${sgr(a.pal.dim)}  choose devices`);
     a.t.write(`\x1b[3;3H${sgr(a.pal.dim)}↑↓ move   space select   enter open   1–9 open one   q quit\x1b[0m`);
-    for (let i = offset; i < devices.length && i < offset + visible; i++) {
-      const lbl = sim.label(devices[i]);
+    for (const [n, e] of shown.entries()) {
+      const row = top + n;
+      if (e.kind === "header") {
+        a.t.write(`\x1b[${row};3H${sgr(platformAccent(a, e.platform), "1")}${platformName[e.platform]}${sgr(a.pal.dim)}  ${e.count}\x1b[0m`);
+      }
+      if (e.kind !== "device") continue;
+      const i = e.i;
+      const lbl = deviceLabel(devices[i]);
       let mark = "○";
       let markStyle = sgr(a.pal.dim);
       if (marked[i]) {
         mark = "●";
-        markStyle = sgr(a.pal.accent);
+        markStyle = sgr(platformAccent(a, devices[i].platform));
       }
       const label = lbl + " ".repeat(labelWidth - width(lbl));
       let text = sgr(a.pal.text);
@@ -47,7 +58,7 @@ async function pick(a: App, devices: sim.Device[]): Promise<sim.Device[]> {
         text = sgr(a.pal.chip, a.pal.chipText, "1");
         markStyle = markStyle.replace("\x1b[0;", `\x1b[0;${a.pal.chip};`);
       }
-      a.t.write(`\x1b[${top + i - offset};3H${markStyle} ${mark} ${text} ${label} \x1b[0m`);
+      a.t.write(`\x1b[${row};3H${markStyle} ${mark} ${text} ${label} \x1b[0m`);
     }
     a.t.flush();
 
@@ -58,7 +69,8 @@ async function pick(a: App, devices: sim.Device[]): Promise<sim.Device[]> {
       continue;
     }
     if (ev.kind === "key") {
-      const digit = ev.rune >= "1" && ev.rune <= "9" ? offset + Number(ev.rune) - 1 : -1;
+      const onScreen = shown.flatMap((e) => (e.kind === "device" ? [e.i] : []));
+      const digit = ev.rune >= "1" && ev.rune <= "9" ? (onScreen[Number(ev.rune) - 1] ?? -1) : -1;
       if (ev.name === "up" || ev.rune === "k") {
         sel = Math.max(0, sel - 1);
       } else if (ev.name === "down" || ev.rune === "j") {
@@ -76,8 +88,8 @@ async function pick(a: App, devices: sim.Device[]): Promise<sim.Device[]> {
     } else if (ev.kind === "mouse") {
       const row = Math.trunc(ev.y / cellHeight(a.size));
       if (ev.button === 0 && !ev.release && !ev.motion) {
-        const i = offset + row - (top - 1);
-        if (row >= top - 1 && i < devices.length) return [devices[i]];
+        const e = row >= top - 1 ? shown[row - (top - 1)] : undefined;
+        if (e?.kind === "device") return [devices[e.i]];
       } else if (ev.button === 64) {
         sel = Math.max(0, sel - 1);
       } else if (ev.button === 65) {

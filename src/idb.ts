@@ -4,6 +4,7 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import protobuf from "protobufjs";
 import idbProto from "../proto/idb.proto" with { type: "text" };
+import type { Button, Frame, Screen } from "./device";
 import { KeyLeftShift, keyFor } from "./keys";
 
 export * from "./keys";
@@ -17,14 +18,6 @@ const definition = protoLoader.fromJSON(protobuf.parse(idbProto, { keepCase: tru
 });
 const CompanionService = (grpc.loadPackageDefinition(definition).idb as grpc.GrpcObject)
   .CompanionService as grpc.ServiceClientConstructor;
-
-export type Screen = { width: number; height: number; widthPoints: number; heightPoints: number };
-
-// Frame holds BGRA pixels. Rows are stride bytes apart, because the
-// framebuffer pads each row.
-export type Frame = { width: number; height: number; stride: number; pix: Uint8Array };
-
-export type Button = "HOME" | "LOCK";
 
 type Message = Record<string, unknown>;
 
@@ -84,7 +77,7 @@ export class Client {
         if (done || !data?.length) return;
         const size = frameSize(data.length, s, scale);
         if (!size) return finish(new Error(`unexpected frame of ${data.length} bytes at scale ${scale.toFixed(2)}`));
-        onFrame({ ...size, pix: data });
+        onFrame({ ...size, bgra: true, pix: data });
       });
       call.on("end", () => finish(new Error("the simulator stopped streaming")));
       call.on("error", (err: Error) => finish(err));
@@ -187,7 +180,7 @@ function keyEvents(code: number, shift: boolean): Message[] {
 // doesn't report them and rounds the scaled size its own way. The buffer pads
 // each row to an alignment, and can hold a few rows more than the image, as
 // at full scale on a 2622-pixel-tall screen, which arrives as 2624 rows.
-export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix"> | null {
+export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix" | "bgra"> | null {
   for (const [dw, dh] of [
     [s.width, s.height],
     [s.height, s.width],

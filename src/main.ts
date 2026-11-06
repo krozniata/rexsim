@@ -1,12 +1,12 @@
-// rexsim shows an iOS simulator in a Rex pane that you can tap, swipe and
-// type into.
+// rexsim shows an iOS simulator or Android emulator in a Rex pane that you
+// can tap, swipe and type into.
 import { parseArgs } from "node:util";
 import { install, uninstall } from "./install";
 import { run } from "./view/app";
 
 const usage = `usage: rexsim [flags] | rexsim install | rexsim uninstall
-  --udid UDID   a simulator to show; repeat it or separate UDIDs with commas to show several.
-                Without it, rexsim asks unless one is booted
+  --udid ID     a simulator's UDID or an emulator's AVD name to show; repeat it or separate
+                them with commas to show several. Without it, rexsim asks unless one is booted
   --agent ID    the Rex block that ^S sends screenshots to; the Rex action sets it
   --fps N       frames per second to stream (default 60)`;
 
@@ -28,8 +28,8 @@ async function main(args: string[]): Promise<void> {
   }
   const fps = Number(values.fps);
   if (!Number.isInteger(fps) || fps <= 0) throw new Error(`invalid --fps ${values.fps}`);
-  const udids = values.udid.flatMap((s) => s.split(",")).map((u) => u.trim()).filter(Boolean);
-  await run({ udids, agent: values.agent, fps });
+  const ids = values.udid.flatMap((s) => s.split(",")).map((u) => u.trim()).filter(Boolean);
+  await run({ ids, agent: values.agent, fps });
 }
 
 try {

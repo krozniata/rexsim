@@ -22,9 +22,9 @@ end
 rex.action{
   name = "rexsim_toggle",
   title = "Toggle rexsim",
-  description = "Show the iOS Simulator in a pane beside this one",
+  description = "Show an iOS simulator or Android emulator in a pane beside this one",
   category = "rexsim",
-  keywords = "ios simulator iphone phone preview",
+  keywords = "ios simulator iphone android emulator phone preview",
   run = function(ctx)
     local open = viewers()
     if #open > 0 then

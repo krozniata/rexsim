@@ -1,3 +1,4 @@
+import type { Platform } from "../device";
 import { cellHeight, cellWidth } from "../term";
 import type { App } from "./app";
 import { captionRows, gapCols } from "./layout";
@@ -34,7 +35,15 @@ function drawHeader(a: App): void {
   else if (n > 1) a.t.write(`${sgr(a.pal.dim)}  ${n} simulators`);
 }
 
-// drawFrame draws the phone's border, in the accent colour when it has the
+export function platformAccent(a: App, platform: Platform): string {
+  return platform === "android" ? a.pal.android : a.pal.accent;
+}
+
+export function phoneAccent(a: App, p: Phone): string {
+  return platformAccent(a, p.device.platform);
+}
+
+// drawFrame draws the phone's border, in its accent colour when it has the
 // keyboard, and its caption below.
 function drawFrame(a: App, p: Phone): void {
   const f = p.frame;
@@ -55,8 +64,8 @@ function drawFrame(a: App, p: Phone): void {
   } else if (p.connecting) {
     detail = "  connecting…";
   } else {
-    detail = "  iOS " + p.osVersion;
-    if (focused) nameStyle = sgr(a.pal.accent, "1");
+    detail = "  " + p.session!.os;
+    if (focused) nameStyle = sgr(phoneAccent(a, p), "1");
   }
   name = clip(name, room);
   detail = clip(detail, room - width(name));
@@ -71,7 +80,7 @@ function drawFrame(a: App, p: Phone): void {
 // screen's plus that gap, so the corners stay concentric. It is redrawn only
 // when its look changes.
 function drawBorder(a: App, p: Phone, focused: boolean): void {
-  const color = focused ? a.pal.accent : a.pal.frame;
+  const color = focused ? phoneAccent(a, p) : a.pal.frame;
   const key = JSON.stringify(p.frame) + color;
   if (key === p.borderKey) return;
   p.borderKey = key;
@@ -89,7 +98,7 @@ function drawBorder(a: App, p: Phone, focused: boolean): void {
   const top = b.y - f.y - gap;
   const right = left + b.w + 2 * gap;
   const bottom = top + b.h + 2 * gap;
-  const r = screenRadius(p.aspect()) * b.w + gap;
+  const r = screenRadius(p.aspect(), p.device.platform) * b.w + gap;
   const img = { pix: roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color)), format: 32, width: w, height: h };
   try {
     p.border.draw(a.t, img, f.col, f.row, f.cols, rows, -1);
@@ -122,6 +131,7 @@ type Hint = [key: string, label: string];
 function hintGroups(a: App): Hint[][] {
   if (a.sidebar) return [[["↑↓", "move"], ["space", "show or hide"], ["esc", "close"], ["⌃]", "quit"]]];
   const simulator: Hint[] = [["⌃B", "home"], ["⌃L", "lock"], ["⌃S", "screenshot"]];
+  if (a.focus?.device.platform === "android") simulator.splice(1, 0, ["esc", "back"]);
   let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "simulators"], ["⌃]", "quit"]];
   if (a.phones.length < 2) rexsim = rexsim.slice(2);
   return [simulator, rexsim];
