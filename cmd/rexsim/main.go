@@ -28,8 +28,6 @@ func run(args []string) error {
 			return install()
 		case "uninstall":
 			return uninstall()
-		case "pick":
-			return pick(args[1:])
 		}
 	}
 	flags := flag.NewFlagSet("rexsim", flag.ContinueOnError)
@@ -54,18 +52,4 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	return view.Run(ctx, view.Options{UDIDs: udids, Agent: *agent, FPS: *fps})
-}
-
-// pick runs the picker that the ⌃O popup shows, and sends the chosen UDIDs to
-// the viewer that opened it.
-func pick(args []string) error {
-	flags := flag.NewFlagSet("rexsim pick", flag.ContinueOnError)
-	result := flags.String("result", "", "the Unix socket to send the chosen UDIDs to")
-	exclude := flags.String("exclude", "", "UDIDs to leave out, separated by commas")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
-	return view.Pick(ctx, *result, strings.Split(*exclude, ","))
 }

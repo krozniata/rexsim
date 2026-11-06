@@ -18,8 +18,8 @@ const (
 // screen from their old boxes to their new ones. Rex accepts moving a placed
 // image (a=p) but doesn't redraw for it, so each step sends a small copy of
 // the phone's last frame, the way video frames are sent. Borders, captions
-// and the phones that leave are hidden while they move; relayout draws
-// everything sharp at the end.
+// and the phones that leave are hidden while they move, and the sidebar
+// slides with them; relayout draws everything sharp at the end.
 func (a *app) animate(change func()) {
 	before := map[*phone]box{}
 	for _, p := range a.visible() {
@@ -27,8 +27,13 @@ func (a *app) animate(change func()) {
 			before[p] = p.box
 		}
 	}
+	panel, panelFrom := a.sidebar, a.panelCol()
 	change()
 	a.layout()
+	if panel == nil {
+		panel = a.sidebar
+	}
+	panelTo := a.panelCol()
 	var movers []*phone
 	thumbs := map[*phone]kitty.Image{}
 	for _, p := range a.visible() {
@@ -37,7 +42,7 @@ func (a *app) animate(change func()) {
 			thumbs[p] = thumbnail(p.current.rgba, p.current.width, p.current.height, animThumbHeight)
 		}
 	}
-	if len(movers) == 0 {
+	if len(movers) == 0 && panelFrom == panelTo {
 		a.relayout()
 		return
 	}
@@ -52,7 +57,7 @@ func (a *app) animate(change func()) {
 	a.t.WriteString("\x1b[0m\x1b[2J")
 	a.endSync()
 
-	start := time.Now()
+	start, panelAt := time.Now(), panelFrom
 	for {
 		t := min(1, float64(time.Since(start))/float64(animDuration))
 		e := 1 - math.Pow(1-t, 3)
@@ -60,6 +65,11 @@ func (a *app) animate(change func()) {
 		for _, p := range movers {
 			b := lerpBox(before[p], p.box, e)
 			_ = p.placer.Draw(a.t, thumbs[p], b.col, b.row, b.cols, b.rows, 0)
+		}
+		if panel != nil {
+			col := int(math.Round(float64(panelFrom) + float64(panelTo-panelFrom)*e))
+			a.drawSidebar(panel, col, min(col, panelAt))
+			panelAt = col
 		}
 		a.endSync()
 		if t >= 1 {

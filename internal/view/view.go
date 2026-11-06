@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"slices"
@@ -40,7 +39,6 @@ func Run(ctx context.Context, opts Options) error {
 		ready:    make(chan struct{}, 1),
 		failures: make(chan streamFailure, 8),
 		winch:    make(chan os.Signal, 1),
-		picked:   make(chan []string, 1),
 		dialed:   make(chan connection, 8),
 	}
 	signal.Notify(a.winch, syscall.SIGWINCH)
@@ -52,9 +50,6 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	for _, p := range a.phones {
 		p.close()
-	}
-	if a.pickLn != nil {
-		_ = a.pickLn.Close()
 	}
 	t.Close()
 	if errors.Is(err, errQuit) || ctx.Err() != nil {
@@ -73,17 +68,15 @@ type app struct {
 	winch    chan os.Signal
 	size     term.Size
 
-	pal    palette
-	mode   layoutMode
-	phones []*phone
-	focus  *phone
-	solo   bool
-	bin    string
-	added  int
-	syncs  int
-	picked chan []string
-	dialed chan connection
-	pickLn net.Listener
+	pal     palette
+	phones  []*phone
+	focus   *phone
+	solo    bool
+	bin     string
+	added   int
+	syncs   int
+	dialed  chan connection
+	sidebar *sidebar
 
 	wheelPhone *phone
 	wheelDY    float64
@@ -151,8 +144,6 @@ func (a *app) run() error {
 			}
 		case <-a.wheelC:
 			a.flushWheel()
-		case udids := <-a.picked:
-			a.addPicked(udids)
 		case c := <-a.dialed:
 			a.dialDone(c)
 		}

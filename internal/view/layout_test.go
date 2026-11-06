@@ -27,7 +27,7 @@ func checkLayout(t *testing.T, s term.Size, aspects []float64, pls []placement) 
 	cw, ch := s.CellWidth(), s.CellHeight()
 	for i, pl := range pls {
 		f, b := pl.frame, pl.box
-		if f.col < 0 || f.col+f.cols > s.Cols || f.row < 1 || f.row+f.rows > s.Rows-1 {
+		if f.col < 0 || f.col+f.cols > s.Cols || f.row < 1 || f.row+f.rows > s.Rows-footerRows {
 			t.Errorf("phone %d: frame %+v is outside the pane", i, f)
 		}
 		if b.col != f.col+1 || b.row != f.row+1 || b.cols != f.cols-2 || b.rows != f.rows-2-captionRows {
@@ -56,39 +56,42 @@ func rows(pls []placement) map[int]bool {
 
 func TestLayoutAutoUsesAGridInAWidePane(t *testing.T) {
 	s, aspects := pane(119, 71), []float64{iPhone, iPhone, iPhone, iPhone}
-	pls := computeLayout(s, aspects, layoutAuto)
+	pls := computeLayout(s, aspects)
 	checkLayout(t, s, aspects, pls)
 	if len(rows(pls)) != 2 {
 		t.Errorf("want 2 rows of phones, got %d", len(rows(pls)))
 	}
 }
 
-func TestLayoutRowAndColumn(t *testing.T) {
+func TestLayoutPicksARowOrAColumnForThePane(t *testing.T) {
 	aspects := []float64{iPhone, iPhone, iPhone}
 	s := pane(180, 50)
-	row := computeLayout(s, aspects, layoutRow)
+	row := computeLayout(s, aspects)
 	checkLayout(t, s, aspects, row)
 	if len(rows(row)) != 1 {
-		t.Errorf("row: phones on %d rows", len(rows(row)))
+		t.Errorf("wide pane: phones on %d rows, want 1", len(rows(row)))
 	}
 	for i := 1; i < len(row); i++ {
 		if gap := row[i].frame.col - (row[i-1].frame.col + row[i-1].frame.cols); gap != gapCols {
-			t.Errorf("row: gap %d between phones %d and %d, want %d", gap, i-1, i, gapCols)
+			t.Errorf("wide pane: gap %d between phones %d and %d, want %d", gap, i-1, i, gapCols)
 		}
 	}
 
 	s = pane(60, 200)
-	col := computeLayout(s, aspects, layoutColumn)
+	col := computeLayout(s, aspects)
 	checkLayout(t, s, aspects, col)
 	if len(rows(col)) != 3 {
-		t.Errorf("column: phones on %d rows, want 3", len(rows(col)))
+		t.Errorf("tall pane: phones on %d rows, want 3", len(rows(col)))
 	}
 }
 
-func TestLayoutGridCentresAPartFilledLastRow(t *testing.T) {
-	s, aspects := pane(119, 71), []float64{iPhone, iPhone, iPhone}
-	pls := computeLayout(s, aspects, layoutGrid)
+func TestLayoutCentresAPartFilledLastRow(t *testing.T) {
+	s, aspects := pane(90, 100), []float64{iPhone, iPhone, iPhone}
+	pls := computeLayout(s, aspects)
 	checkLayout(t, s, aspects, pls)
+	if len(rows(pls)) != 2 {
+		t.Fatalf("want 2 rows of phones, got %d", len(rows(pls)))
+	}
 	last := pls[2].frame
 	centre := float64(last.col) + float64(last.cols)/2
 	if math.Abs(centre-float64(s.Cols)/2) > 1 {
@@ -98,7 +101,7 @@ func TestLayoutGridCentresAPartFilledLastRow(t *testing.T) {
 
 func TestLayoutDrawsTheSameModelAtTheSameSize(t *testing.T) {
 	s, aspects := pane(119, 71), []float64{iPad, iPhone, iPhone, iPhone}
-	pls := computeLayout(s, aspects, layoutAuto)
+	pls := computeLayout(s, aspects)
 	checkLayout(t, s, aspects, pls)
 	for i := 2; i < len(pls); i++ {
 		if pls[i].box.cols != pls[1].box.cols || pls[i].box.rows != pls[1].box.rows {
@@ -108,10 +111,10 @@ func TestLayoutDrawsTheSameModelAtTheSameSize(t *testing.T) {
 }
 
 func TestLayoutGivesUpWhenNothingFits(t *testing.T) {
-	if pls := computeLayout(pane(10, 5), []float64{iPhone}, layoutAuto); pls != nil {
+	if pls := computeLayout(pane(10, 5), []float64{iPhone}); pls != nil {
 		t.Errorf("want nil in a tiny pane, got %+v", pls)
 	}
-	if pls := computeLayout(pane(119, 71), nil, layoutAuto); pls != nil {
+	if pls := computeLayout(pane(119, 71), nil); pls != nil {
 		t.Errorf("want nil with no phones, got %+v", pls)
 	}
 }

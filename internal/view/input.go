@@ -18,7 +18,7 @@ func (a *app) handle(ev any) error {
 	case term.Key:
 		return a.key(ev)
 	case term.Paste:
-		if a.usable(a.focus) {
+		if a.sidebar == nil && a.usable(a.focus) {
 			a.report(a.focus.idb.Text(ev.Text))
 		}
 	case term.Mouse:
@@ -34,21 +34,18 @@ var namedKeys = map[string]uint64{
 
 // key sends typing to the phone clicked last.
 func (a *app) key(k term.Key) error {
+	if a.sidebar != nil && a.sidebarKey(k) {
+		return nil
+	}
 	switch k.Name {
 	case "ctrl+]", "ctrl+c", "ctrl+q":
 		return errQuit
-	case "ctrl+g":
-		a.cycleLayout()
 	case "ctrl+f":
 		a.toggleSolo()
 	case "ctrl+n":
-		a.moveFocus(1)
-	case "ctrl+p":
-		a.moveFocus(-1)
+		a.focusNext()
 	case "ctrl+o":
-		a.openMore()
-	case "ctrl+w":
-		return a.closeFocused()
+		a.toggleSidebar()
 	}
 	if !a.usable(a.focus) {
 		return nil
@@ -81,6 +78,9 @@ func (a *app) phoneAt(px, py int) *phone {
 }
 
 func (a *app) mouse(m term.Mouse) error {
+	if a.sidebarMouse(m) {
+		return nil
+	}
 	switch {
 	case m.Button >= 64:
 		if m.Button > 65 || m.Release || m.Motion {

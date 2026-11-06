@@ -24,6 +24,8 @@ rexsim install
 
 Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palette. With one booted simulator it shows that one. With several, it lists every simulator with the booted ones marked: Enter shows the marked ones, each in a frame with its name below, Space marks or unmarks one, a digit or a click shows just that one.
 
+Control the simulator:
+
 | Input | Does |
 | --- | --- |
 | Click, drag | Tap, swipe |
@@ -31,11 +33,14 @@ Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palet
 | Typing, paste | Types into the focused phone, the one clicked last |
 | Ctrl+B, Ctrl+L | Home, lock |
 | Ctrl+S | Saves a screenshot and types its path into the agent's input |
-| Ctrl+G | Cycles the layout: Auto, Grid, Row, Column |
+
+Control rexsim:
+
+| Input | Does |
+| --- | --- |
 | Ctrl+F | Shows only the focused phone, filling the pane, or goes back to all of them |
-| Ctrl+N, Ctrl+P | Moves focus to the next or previous phone |
-| Ctrl+O | Opens a popup to add simulators, booting them if needed |
-| Ctrl+W | Takes the focused simulator out of the pane and shuts it down |
+| Ctrl+N | Moves focus to the next phone |
+| Ctrl+O | Slides in the list of simulators: choosing one shows or hides it, booting it or shutting it down; Esc closes the list |
 | Ctrl+] | Quit |
 
 `rexsim --udid UDID[,UDID…]` shows the given simulators without asking.

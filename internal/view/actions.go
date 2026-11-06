@@ -4,10 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
-
-	"rexsim/internal/sim"
 )
 
 // usable reports whether a phone takes input yet, and says why not.
@@ -23,56 +22,21 @@ func (a *app) usable(p *phone) bool {
 	return false
 }
 
-// openMore opens a popup that lists the simulators that aren't shown, and
-// adds the ones chosen there.
-func (a *app) openMore() {
-	all, err := sim.Devices(a.ctx)
-	if err != nil {
-		a.flash(err.Error())
-		return
-	}
-	if len(without(all, a.shownUDIDs())) == 0 {
-		a.flash("Every simulator is already shown")
-		return
-	}
-	if err := a.openPopup(); err != nil {
-		a.flash(err.Error())
-	}
-}
-
-func (a *app) shownUDIDs() []string {
-	udids := make([]string, len(a.phones))
-	for i, p := range a.phones {
-		udids[i] = p.device.UDID
-	}
-	return udids
-}
-
-// closeFocused takes the focused phone out of the pane and shuts its
-// simulator down. The shutdown runs in the background, because it takes a
-// second or two.
-func (a *app) closeFocused() error {
-	if len(a.phones) == 1 {
-		return errQuit
-	}
-	i := a.focusIndex()
-	a.animate(func() {
-		closed := a.phones[i]
-		a.phones = append(a.phones[:i], a.phones[i+1:]...)
+// removePhone takes a phone out of the pane and shuts its simulator down.
+// The shutdown runs in the background, because it takes a second or two.
+func (a *app) removePhone(p *phone) {
+	i := slices.Index(a.phones, p)
+	a.phones = slices.Delete(a.phones, i, i+1)
+	if a.focus == p {
 		a.focus = a.phones[min(i, len(a.phones)-1)]
-		if len(a.phones) < 2 {
-			a.solo = false
-		}
-		closed.close()
-		go func() { _ = exec.Command("xcrun", "simctl", "shutdown", closed.device.UDID).Run() }()
-		a.flash("Shutting down " + closed.device.Name)
-	})
-	return nil
-}
-
-func (a *app) cycleLayout() {
-	a.animate(func() { a.mode = (a.mode + 1) % 4 })
-	a.flash("Layout: " + a.mode.String())
+	}
+	if len(a.phones) < 2 {
+		a.solo = false
+	}
+	p.close()
+	go func() { _ = exec.Command("xcrun", "simctl", "shutdown", p.device.UDID).Run() }()
+	a.markShutDown(p.device.UDID)
+	a.flash("Shutting down " + p.device.Name)
 }
 
 func (a *app) focusIndex() int {
@@ -92,14 +56,14 @@ func (a *app) toggleSolo() {
 	a.animate(func() { a.solo = !a.solo })
 }
 
-// moveFocus gives the keyboard to the next or previous phone. While one
-// phone fills the pane, that phone takes its place.
-func (a *app) moveFocus(step int) {
+// focusNext gives the keyboard to the next phone. While one phone fills the
+// pane, that phone takes its place.
+func (a *app) focusNext() {
 	n := len(a.phones)
 	if n < 2 {
 		return
 	}
-	a.focus = a.phones[((a.focusIndex()+step)%n+n)%n]
+	a.focus = a.phones[(a.focusIndex()+1)%n]
 	if a.solo {
 		a.relayout()
 	} else {

@@ -3,7 +3,6 @@ package view
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"rexsim/internal/sim"
@@ -45,17 +44,6 @@ func (a *app) chooseDevices() ([]sim.Device, error) {
 		return devices[:1], nil
 	}
 	return a.pick(devices, "choose simulators")
-}
-
-// without returns the devices whose UDIDs aren't in udids.
-func without(devices []sim.Device, udids []string) []sim.Device {
-	var rest []sim.Device
-	for _, d := range devices {
-		if !slices.Contains(udids, d.UDID) {
-			rest = append(rest, d)
-		}
-	}
-	return rest
 }
 
 // pick lists the simulators with the booted ones first and marked, so Enter

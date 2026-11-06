@@ -11,39 +11,18 @@ const (
 	gapCols     = 4
 	gapRows     = 1
 	captionRows = 1
+	footerRows  = 1
 )
 
-type layoutMode int
-
-const (
-	layoutAuto layoutMode = iota
-	layoutGrid
-	layoutRow
-	layoutColumn
-)
-
-func (m layoutMode) String() string {
-	return [...]string{"Auto", "Grid", "Row", "Column"}[m]
-}
-
-// rowChoices lists the numbers of rows the layout mode allows. Auto tries
-// them all and keeps the one that draws the phones biggest: side by side in a
-// wide pane, stacked in a tall one.
-func rowChoices(mode layoutMode, n int) []int {
-	switch mode {
-	case layoutRow:
-		return []int{1}
-	case layoutColumn:
-		return []int{n}
-	case layoutGrid:
-		c := int(math.Ceil(math.Sqrt(float64(n))))
-		return []int{(n + c - 1) / c}
+// phoneArea is the part of the pane the phones use: all of it, or what the
+// sidebar leaves.
+func (a *app) phoneArea() term.Size {
+	s := a.size
+	if a.sidebar != nil {
+		s.Cols = a.panelCol()
+		s.Width = int(float64(s.Cols) * a.size.CellWidth())
 	}
-	rows := make([]int, n)
-	for i := range rows {
-		rows[i] = i + 1
-	}
-	return rows
+	return s
 }
 
 func (a *app) layout() {
@@ -55,7 +34,7 @@ func (a *app) layout() {
 	for i, p := range shown {
 		aspects[i] = p.aspect()
 	}
-	for i, pl := range computeLayout(a.size, aspects, a.mode) {
+	for i, pl := range computeLayout(a.phoneArea(), aspects) {
 		shown[i].frame, shown[i].box = pl.frame, pl.box
 	}
 }
@@ -66,13 +45,15 @@ type placement struct{ frame, box box }
 
 // computeLayout places phones of the given aspect ratios, width over height,
 // each in a rounded frame with its caption below, with gaps between them. It
+// tries every number of rows and keeps the one that draws the smallest phone
+// biggest: side by side in a wide pane, stacked in a tall one. It
 // centres every row of the grid, so a part-filled last row sits in the
 // middle. The terminal scales images to whole cells, so a box can be off the
 // phone's aspect ratio by up to a cell; touches map through the same box. It
 // returns nil when the phones don't fit.
-func computeLayout(s term.Size, aspects []float64, mode layoutMode) []placement {
+func computeLayout(s term.Size, aspects []float64) []placement {
 	cw, ch := s.CellWidth(), s.CellHeight()
-	availCols, availRows := s.Cols-2*marginCols, s.Rows-4
+	availCols, availRows := s.Cols-2*marginCols, s.Rows-3-footerRows
 	n := len(aspects)
 	if n == 0 {
 		return nil
@@ -102,16 +83,10 @@ func computeLayout(s term.Size, aspects []float64, mode layoutMode) []placement 
 	}
 	var sizes []size
 	bestH, bestR := 0.0, 0
-	pick := func(choices []int) {
-		for _, r := range choices {
-			if s, h, ok := fitIn(r); ok && h > bestH {
-				sizes, bestH, bestR = s, h, r
-			}
+	for r := 1; r <= n; r++ {
+		if s, h, ok := fitIn(r); ok && h > bestH {
+			sizes, bestH, bestR = s, h, r
 		}
-	}
-	pick(rowChoices(mode, n))
-	if bestR == 0 {
-		pick(rowChoices(layoutAuto, n))
 	}
 	if bestR == 0 {
 		return nil

@@ -3,7 +3,6 @@ package view
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -21,6 +20,9 @@ func (a *app) drawChrome() {
 	a.drawHeader()
 	for _, p := range a.visible() {
 		a.drawFrame(p)
+	}
+	if a.sidebar != nil {
+		a.drawSidebar(a.sidebar, a.panelCol(), a.panelCol())
 	}
 	a.drawFooter()
 	a.t.WriteString("\x1b[0m")
@@ -53,7 +55,7 @@ func (a *app) drawHeader() {
 	case a.solo && n > 1:
 		fmt.Fprintf(a.t, "%s  %d of %d · focus", sgr(a.pal.dim), a.focusIndex()+1, n)
 	case n > 1:
-		fmt.Fprintf(a.t, "%s  %d simulators · %s", sgr(a.pal.dim), n, strings.ToLower(a.mode.String()))
+		fmt.Fprintf(a.t, "%s  %d simulators", sgr(a.pal.dim), n)
 	}
 }
 
@@ -125,32 +127,61 @@ func (a *app) drawBorder(p *phone, focused bool) {
 	}
 }
 
+// drawFooter shows the shortcuts that act on the simulator, then those that
+// act on rexsim, with the frame rate at the end. A status message takes the
+// place of the shortcuts for a moment.
 func (a *app) drawFooter() {
-	fmt.Fprintf(a.t, "\x1b[%d;1H\x1b[0m\x1b[2K", a.size.Rows)
+	fmt.Fprintf(a.t, "\x1b[%d;1H\x1b[0m\x1b[2K ", a.size.Rows)
 	rate, rateStyle := "○ idle ", sgr(a.pal.dim)
 	if a.fps > 0 {
 		rate, rateStyle = fmt.Sprintf("● %d fps ", a.fps), sgr(a.pal.accent)
 	}
 	room := a.size.Cols - width(rate) - 2
 	if time.Now().Before(a.statusUntil) {
-		fmt.Fprintf(a.t, " %s%s", sgr(a.pal.accent), clip(a.status, room))
+		fmt.Fprintf(a.t, "%s%s", sgr(a.pal.accent), clip(a.status, room))
 	} else {
-		hints := [][2]string{{"⌃F", "focus"}, {"⌃N", "next"}, {"⌃O", "open"}, {"⌃W", "close"}, {"⌃B", "home"}, {"⌃L", "lock"}, {"⌃S", "screenshot"}, {"⌃G", "layout"}, {"⌃]", "quit"}}
-		if len(a.phones) < 2 {
-			hints = hints[2:]
-		}
-		used := 1
-		a.t.WriteString(" ")
-		for _, h := range hints {
-			n := width(h[0]) + 1 + width(h[1]) + 3
-			if used+n > room {
-				break
+		a.drawHints(room, a.hintGroups())
+	}
+	fmt.Fprintf(a.t, "\x1b[%d;%dH%s%s", a.size.Rows, a.size.Cols-width(rate)+1, rateStyle, rate)
+}
+
+type hint struct{ key, label string }
+
+// hintGroups lists the shortcuts that act on the simulator, then those that
+// act on rexsim itself.
+func (a *app) hintGroups() [][]hint {
+	if a.sidebar != nil {
+		return [][]hint{{{"↑↓", "move"}, {"space", "show or hide"}, {"esc", "close"}, {"⌃]", "quit"}}}
+	}
+	simulator := []hint{{"⌃B", "home"}, {"⌃L", "lock"}, {"⌃S", "screenshot"}}
+	rexsim := []hint{{"⌃F", "focus"}, {"⌃N", "next"}, {"⌃O", "simulators"}, {"⌃]", "quit"}}
+	if len(a.phones) < 2 {
+		rexsim = rexsim[2:]
+	}
+	return [][]hint{simulator, rexsim}
+}
+
+// drawHints writes the groups with a divider between them, as many hints as
+// fit in room columns.
+func (a *app) drawHints(room int, groups [][]hint) {
+	used := 0
+	for i, group := range groups {
+		if i > 0 {
+			if used+3 > room {
+				return
 			}
-			fmt.Fprintf(a.t, "%s%s %s%s   ", sgr(a.pal.text, "1"), h[0], sgr(a.pal.dim), h[1])
+			fmt.Fprintf(a.t, "%s│  ", sgr(a.pal.frame))
+			used += 3
+		}
+		for _, h := range group {
+			n := width(h.key) + 1 + width(h.label) + 3
+			if used+n > room {
+				return
+			}
+			fmt.Fprintf(a.t, "%s%s %s%s   ", sgr(a.pal.text, "1"), h.key, sgr(a.pal.dim), h.label)
 			used += n
 		}
 	}
-	fmt.Fprintf(a.t, "\x1b[%d;%dH%s%s", a.size.Rows, a.size.Cols-width(rate)+1, rateStyle, rate)
 }
 
 func clip(s string, n int) string {
