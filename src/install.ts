@@ -1,13 +1,26 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import actionLua from "./rexsim.lua" with { type: "text" };
+import skillTemplate from "./skill.md" with { type: "text" };
 
 const requireLine = `require("rexsim")`;
+
+const skillMarker = `Installed by "rexsim install"`;
 
 function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   return xdg ? join(xdg, "rex") : join(homedir(), ".config", "rex");
+}
+
+// skillDirs are where agents look for the skill: Claude Code in its own
+// directory, and Codex, OpenCode and Pi in the one they share, as with Rex's
+// own skill.
+function skillDirs(): string[] {
+  return [
+    join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "skills", "rexsim"),
+    join(homedir(), ".agents", "skills", "rexsim"),
+  ];
 }
 
 // install doesn't resolve symlinks in the binary's path, so a path that a
@@ -30,8 +43,33 @@ export async function install(): Promise<void> {
     writeFileSync(initPath, s + requireLine + "\n");
     console.log(`added ${requireLine} to ${initPath}`);
   }
+  for (const dir of skillDirs()) installSkill(dir, bin);
   await reload();
   console.log('press shift+cmd+i, or run "Toggle rexsim" from the command palette, beside an agent');
+}
+
+// installSkill tells agents to show the devices they drive. A skill of the
+// same name that rexsim didn't write is left alone.
+function installSkill(dir: string, bin: string): void {
+  const path = join(dir, "SKILL.md");
+  const old = readFile(path);
+  if (old !== "" && !old.includes(skillMarker)) {
+    console.log(`left ${path} alone, since rexsim didn't write it`);
+    return;
+  }
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path, skillTemplate.replaceAll("{{rexsim}}", shellQuote(bin)));
+  console.log("wrote", path);
+}
+
+function uninstallSkill(dir: string): void {
+  const path = join(dir, "SKILL.md");
+  if (!readFile(path).includes(skillMarker)) return;
+  unlinkSync(path);
+  try {
+    rmdirSync(dir);
+  } catch {}
+  console.log("removed", path);
 }
 
 export async function uninstall(): Promise<void> {
@@ -48,6 +86,7 @@ export async function uninstall(): Promise<void> {
     writeFileSync(initPath, next);
     console.log(`removed ${requireLine} from ${initPath}`);
   }
+  for (const dir of skillDirs()) uninstallSkill(dir);
   await reload();
 }
 
@@ -84,6 +123,10 @@ function lines(s: string): string[] {
 function isRequire(line: string): boolean {
   const t = line.trim();
   return t === requireLine || t.startsWith(requireLine + " --");
+}
+
+function shellQuote(s: string): string {
+  return /^[\w./+-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
 function luaQuote(s: string): string {

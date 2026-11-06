@@ -27,6 +27,21 @@ rexsim install
 
 Open it in Rex with <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>I</kbd>
 
+## Agents
+
+`rexsim show` puts devices in the Rex session's rexsim pane, opening one
+beside the calling pane when there is none:
+
+```sh
+rexsim show                       # every booted simulator and emulator
+rexsim show "iPhone 17" Pixel_9   # by name, UDID, AVD name or adb serial
+```
+
+`rexsim install` also writes a skill that tells agents to show the devices
+they drive, for example before running e2e tests: to `~/.claude/skills/rexsim`
+for Claude Code, and to `~/.agents/skills/rexsim` for Codex, OpenCode and Pi.
+`rexsim uninstall` removes it.
+
 ## Keys
 
 | Key | Does |

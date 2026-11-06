@@ -9,8 +9,9 @@ import * as sim from "./sim";
 export type Platform = "ios" | "android";
 
 // Device is a simulator or an emulator. id is a simulator's UDID or an
-// emulator's AVD name.
-export type Device = { id: string; name: string; runtime: string; booted: boolean; platform: Platform };
+// emulator's AVD name. serial is a running emulator's adb serial, such as
+// emulator-5554, which test tools print.
+export type Device = { id: string; name: string; runtime: string; booted: boolean; platform: Platform; serial?: string };
 
 // Screen is the size in pixels and in points, the unit touches use. An
 // Android point is a density-independent pixel.
@@ -41,11 +42,11 @@ export function label(d: Device): string {
   return `${d.name} · ${d.runtime}`;
 }
 
-// find looks a device up by its UDID or AVD name, or else by its name, which
-// several simulators can share across runtimes; a booted one wins, then the
-// newest.
+// find looks a device up by its UDID, AVD name or adb serial, or else by its
+// name, which several simulators can share across runtimes; a booted one
+// wins, then the newest.
 export function find(devices: Device[], key: string): Device | undefined {
-  const byId = devices.find((d) => d.id === key);
+  const byId = devices.find((d) => d.id === key || d.serial === key);
   if (byId) return byId;
   const named = devices.filter((d) => d.name.toLowerCase() === key.toLowerCase());
   return named.find((d) => d.booted) ?? named[0];

@@ -2,10 +2,14 @@
 // can tap, swipe and type into.
 import { parseArgs } from "node:util";
 import { install, uninstall } from "./install";
+import { show } from "./show";
 import { run } from "./view/app";
 
-const usage = `usage: rexsim [flags] | rexsim install | rexsim uninstall
-  --udid ID     a simulator's UDID or an emulator's AVD name to show; repeat it or separate
+const usage = `usage: rexsim [flags] | rexsim show [DEVICE...] | rexsim install | rexsim uninstall
+  show DEVICE   shows simulators or emulators, by name, UDID, AVD name or adb serial, in this Rex session's
+                rexsim pane, opening one beside this pane if needed. Without a DEVICE, it shows
+                every booted one
+  --udid ID     a device to show, as for show; repeat it or separate
                 them with commas to show several. Without it, rexsim asks unless one is booted
   --agent ID    the Rex block that ^S sends screenshots to; the Rex action sets it
   --fps N       frames per second to stream (default 60)`;
@@ -13,6 +17,7 @@ const usage = `usage: rexsim [flags] | rexsim install | rexsim uninstall
 async function main(args: string[]): Promise<void> {
   if (args[0] === "install") return install();
   if (args[0] === "uninstall") return uninstall();
+  if (args[0] === "show") return show(args.slice(1));
   const { values } = parseArgs({
     args,
     options: {

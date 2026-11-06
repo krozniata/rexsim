@@ -9,7 +9,7 @@ import type { Device, Screen } from "./device";
 import { Client } from "./emulator";
 
 // Running is an emulator's gRPC endpoint, from its discovery file.
-export type Running = { id: string; pid: number; port: number; token: string };
+export type Running = { id: string; pid: number; port: number; token: string; serial: string };
 
 export function sdkRoot(): string {
   return process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || join(homedir(), "Library", "Android", "sdk");
@@ -53,7 +53,7 @@ export async function devices(): Promise<Device[]> {
   } catch {
     return [];
   }
-  const booted = new Set(runningAll().map((r) => r.id));
+  const serials = new Map(runningAll().map((r) => [r.id, r.serial]));
   const found: { d: Device; api: number }[] = [];
   for (const file of files) {
     const id = file.slice(0, -".ini".length);
@@ -62,7 +62,9 @@ export async function devices(): Promise<Device[]> {
     const config = readIni(join(ini.path || join(home, `${id}.avd`), "config.ini")) ?? {};
     const api = apiLevel(ini.target) || apiLevel(config["image.sysdir.1"]);
     const name = config["avd.ini.displayname"] || id.replaceAll("_", " ");
-    found.push({ d: { id, name, runtime: runtimeName(api), booted: booted.has(id), platform: "android" }, api });
+    const d: Device = { id, name, runtime: runtimeName(api), booted: serials.has(id), platform: "android" };
+    if (serials.get(id)) d.serial = serials.get(id);
+    found.push({ d, api });
   }
   found.sort((a, b) => {
     if (a.d.booted !== b.d.booted) return a.d.booted ? -1 : 1;
@@ -115,7 +117,8 @@ function runningAll(): Running[] {
     const port = Number(ini?.["grpc.port"]);
     const id = ini?.["avd.id"] || ini?.["avd.name"];
     if (!ini || !port || !id) continue;
-    result.push({ id, pid, port, token: ini["grpc.token"] ?? "" });
+    const consolePort = Number(ini["port.serial"]);
+    result.push({ id, pid, port, token: ini["grpc.token"] ?? "", serial: consolePort ? `emulator-${consolePort}` : "" });
   }
   return result;
 }

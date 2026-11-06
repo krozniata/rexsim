@@ -4,7 +4,8 @@ import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as companion from "../companion";
-import { type Device, shutdown } from "../device";
+import * as control from "../control";
+import { type Device, devices as listDevices, find, label, shutdown } from "../device";
 import { type InputEvent, type Key, type Mouse, readEvents } from "../input";
 import * as keys from "../keys";
 import * as kitty from "../kitty";
@@ -31,6 +32,7 @@ export type AppEvent =
   | { kind: "wheel" }
   | { kind: "dialed"; c: Connection }
   | { kind: "error"; text: string }
+  | { kind: "show"; keys: string[]; reply: (r: control.Reply) => void }
   | { kind: "quit" };
 
 const statusTime = 4000;
@@ -86,6 +88,7 @@ export class App {
   sidebar: Sidebar | null = null;
   private readyQueued = false;
   private tick: ReturnType<typeof setInterval> | undefined;
+  private stopServing = () => {};
 
   private wheelPhone: Phone | null = null;
   private wheelDY = 0;
@@ -114,6 +117,7 @@ export class App {
     this.focus = this.add(devices)[0];
     this.updateSize();
     this.relayout();
+    this.serve();
 
     this.tick = setInterval(() => this.events.push({ kind: "tick" }), 1000);
     for (;;) {
@@ -155,6 +159,9 @@ export class App {
         case "error":
           this.flash(ev.text);
           break;
+        case "show":
+          ev.reply(await this.show(ev.keys));
+          break;
       }
     }
   }
@@ -162,6 +169,49 @@ export class App {
   stopTimers(): void {
     clearInterval(this.tick);
     clearTimeout(this.wheelTimer);
+    this.stopServing();
+  }
+
+  // serve takes "rexsim show" requests for this Rex session. Outside Rex
+  // there is no session to be found by.
+  private serve(): void {
+    const session = process.env.REX_SESSION;
+    if (!session) return;
+    try {
+      this.stopServing = control.serve(control.controlPath(session), (req) => {
+        return new Promise((reply) => this.events.push({ kind: "show", keys: req.show, reply }));
+      });
+    } catch (err) {
+      this.flash(`rexsim show can't reach this pane: ${(err as Error).message}`);
+    }
+  }
+
+  // show adds the named devices, or every booted one, and focuses the first.
+  // A phone whose device stopped is replaced, since a test run may have
+  // restarted it.
+  private async show(keys: string[]): Promise<control.Reply> {
+    let all: Device[];
+    try {
+      all = await listDevices(this.signal);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+    const unknown = keys.filter((k) => !find(all, k));
+    if (unknown.length > 0) return { ok: false, error: `no simulator or emulator is called ${unknown.join(", ")}` };
+    const wanted = keys.length > 0 ? [...new Set(keys.map((k) => find(all, k)!))] : all.filter((d) => d.booted);
+    if (wanted.length === 0) return { ok: false, error: "no simulator or emulator is booted; name the ones to show" };
+
+    for (const p of this.phones.filter((p) => p.failed !== "" && wanted.some((d) => d.id === p.device.id))) {
+      this.phones.splice(this.phones.indexOf(p), 1);
+      void p.close();
+    }
+    const fresh = wanted.filter((d) => !this.phones.some((p) => p.device.id === d.id));
+    const added = this.add(fresh);
+    this.focus = this.phones.find((p) => p.device.id === wanted[0].id) ?? this.focus;
+    if (this.phones.length < 2) this.solo = false;
+    this.relayout();
+    const names = wanted.map(label).join(", ");
+    return { ok: true, message: added.length > 0 ? `showing ${names}` : `already showing ${names}` };
   }
 
   // companionBin fetches idb_companion the first time a simulator needs it,
