@@ -34,27 +34,24 @@ func (a *app) chooseDevices() ([]sim.Device, error) {
 	if len(devices) == 0 {
 		return nil, errors.New("no iOS simulators are available; add one in Xcode")
 	}
-	booted := 0
+	var booted []sim.Device
 	for _, d := range devices {
 		if d.Booted {
-			booted++
+			booted = append(booted, d)
 		}
 	}
-	if booted == 1 {
-		return devices[:1], nil
+	if len(booted) > 0 {
+		return booted, nil
 	}
-	return a.pick(devices, "choose simulators")
+	return a.pick(devices)
 }
 
-// pick lists the simulators with the booted ones first and marked, so Enter
-// shows all of them. Space marks or unmarks one; a digit or a click shows
-// only that one.
-func (a *app) pick(devices []sim.Device, title string) ([]sim.Device, error) {
+// pick lists the simulators when none is booted. Space marks one or more and
+// Enter shows them, or the selected one when none is marked; a digit or a
+// click shows only that one.
+func (a *app) pick(devices []sim.Device) ([]sim.Device, error) {
 	const top = 5
 	marked := make([]bool, len(devices))
-	for i, d := range devices {
-		marked[i] = d.Booted
-	}
 	labelWidth := 0
 	for _, d := range devices {
 		labelWidth = max(labelWidth, width(d.Label()))
@@ -67,7 +64,7 @@ func (a *app) pick(devices []sim.Device, title string) ([]sim.Device, error) {
 		} else if sel >= offset+visible {
 			offset = sel - visible + 1
 		}
-		fmt.Fprintf(a.t, "\x1b[0m\x1b[2J\x1b[2;3H%s◆ rexsim%s  %s", sgr(a.pal.accent, "1"), sgr(a.pal.dim), title)
+		fmt.Fprintf(a.t, "\x1b[0m\x1b[2J\x1b[2;3H%s◆ rexsim%s  %s", sgr(a.pal.accent, "1"), sgr(a.pal.dim), "choose simulators")
 		fmt.Fprintf(a.t, "\x1b[3;3H%s↑↓ move   space select   enter open   1–9 open one   q quit\x1b[0m", sgr(a.pal.dim))
 		for i := offset; i < len(devices) && i < offset+visible; i++ {
 			d := devices[i]
@@ -75,22 +72,13 @@ func (a *app) pick(devices []sim.Device, title string) ([]sim.Device, error) {
 			if marked[i] {
 				mark, markStyle = "●", sgr(a.pal.accent)
 			}
-			tag := ""
-			if d.Booted {
-				tag = "booted"
-			}
 			label := d.Label() + strings.Repeat(" ", labelWidth-width(d.Label()))
-			bg, text := "", sgr(a.pal.text)
+			text := sgr(a.pal.text)
 			if i == sel {
-				bg = a.pal.chip
-				text = sgr(bg, a.pal.chipText, "1")
-				markStyle = strings.Replace(markStyle, "\x1b[0;", "\x1b[0;"+bg+";", 1)
+				text = sgr(a.pal.chip, a.pal.chipText, "1")
+				markStyle = strings.Replace(markStyle, "\x1b[0;", "\x1b[0;"+a.pal.chip+";", 1)
 			}
-			tagStyle := sgr(a.pal.dim)
-			if bg != "" {
-				tagStyle = sgr(bg, a.pal.dim)
-			}
-			fmt.Fprintf(a.t, "\x1b[%d;3H%s %s %s %s  %s%-6s \x1b[0m", top+i-offset, markStyle, mark, text, label, tagStyle, tag)
+			fmt.Fprintf(a.t, "\x1b[%d;3H%s %s %s %s \x1b[0m", top+i-offset, markStyle, mark, text, label)
 		}
 		_ = a.t.Flush()
 

@@ -22,7 +22,7 @@ rexsim install
 
 ## Use
 
-Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palette. With one booted simulator it shows that one. With several, it lists every simulator with the booted ones marked: Enter shows the marked ones, each in a frame with its name below, Space marks or unmarks one, a digit or a click shows just that one.
+Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palette. It shows every booted simulator, each in a frame with its name below. When none is booted, it lists them all: Space marks one or more and Enter boots and shows them, or a digit or a click shows just that one.
 
 Control the simulator:
 
