@@ -41,11 +41,15 @@ type phone struct {
 	failed     string
 
 	placer         kitty.Placer
-	rgb            []byte
+	rgba           []byte
+	mask           []uint8
+	maskR          int
 	current        *idb.Frame
 	frameW, frameH int
-	slot           box
+	frame          box
 	box            box
+	border         kitty.Placer
+	borderKey      string
 
 	touching bool
 	lastMove time.Time
@@ -92,6 +96,7 @@ func (p *phone) close() {
 		p.comp.Close()
 	}
 	p.placer.Close()
+	p.border.Close()
 }
 
 func (p *phone) startStream(ctx context.Context, fps int, ready chan<- struct{}, failures chan<- streamFailure) {
@@ -139,13 +144,15 @@ func (p *phone) takeLatest() *idb.Frame {
 	return f
 }
 
-// size is the phone's aspect in pixels: the frame's once one arrives, since
-// it turns with the phone, and the screen's before that.
-func (p *phone) size() (w, h float64) {
+// aspect is the phone's width over its height: the frame's once one arrives,
+// since it turns with the phone, and the screen's before that. Layout uses
+// only the ratio, because a frame's pixel size depends on the stream's scale,
+// which in turn follows the drawn size.
+func (p *phone) aspect() float64 {
 	if p.frameW > 0 && p.frameH > 0 {
-		return float64(p.frameW), float64(p.frameH)
+		return float64(p.frameW) / float64(p.frameH)
 	}
-	return float64(p.screen.Width), float64(p.screen.Height)
+	return float64(p.screen.Width) / float64(p.screen.Height)
 }
 
 // wantScale streams at the size the phone is drawn, in steps of 5% so small
@@ -167,21 +174,4 @@ func (p *phone) point(px, py int) (x, y float64) {
 	fx := min(max((float64(px)-b.x)/b.w, 0), 0.999)
 	fy := min(max((float64(py)-b.y)/b.h, 0), 0.999)
 	return fx * p.screen.WidthPoints, fy * p.screen.HeightPoints
-}
-
-func toRGB(dst []byte, f *idb.Frame) []byte {
-	n := f.Width * f.Height * 3
-	if cap(dst) < n {
-		dst = make([]byte, n)
-	}
-	dst = dst[:n]
-	i := 0
-	for y := 0; y < f.Height; y++ {
-		row := f.Pix[y*f.Stride : y*f.Stride+f.Width*4]
-		for x := 0; x < len(row); x += 4 {
-			dst[i], dst[i+1], dst[i+2] = row[x+2], row[x+1], row[x]
-			i += 3
-		}
-	}
-	return dst
 }

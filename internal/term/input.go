@@ -28,6 +28,26 @@ type Mouse struct {
 
 type Paste struct{ Text string }
 
+// OSC is a reply to an operating system command query, such as "11;rgb:…"
+// for the background colour.
+type OSC struct{ Text string }
+
+// parseOSC reads an OSC reply, which ends with BEL or ST.
+func parseOSC(b []byte) (any, int) {
+	for i := 2; i < len(b); i++ {
+		switch {
+		case b[i] == 0x07:
+			return OSC{Text: string(b[2:i])}, i + 1
+		case b[i] == 0x1b && i+1 < len(b) && b[i+1] == '\\':
+			return OSC{Text: string(b[2:i])}, i + 2
+		}
+	}
+	if len(b) > 512 {
+		return nil, 1
+	}
+	return nil, 0
+}
+
 const escTimeout = 30 * time.Millisecond
 
 // ReadEvents parses r until it fails and sends each Key, Mouse and Paste to
@@ -116,6 +136,8 @@ func parseEscape(b []byte) (any, int) {
 			return nil, 0
 		}
 		return arrow(b[2]), 3
+	case ']':
+		return parseOSC(b)
 	case '[':
 	default:
 		return Key{Name: "esc"}, 1

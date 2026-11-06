@@ -3,6 +3,7 @@ package view
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/krozniata/rexsim/internal/sim"
 	"github.com/krozniata/rexsim/internal/term"
@@ -49,10 +50,14 @@ func (a *app) chooseDevices() ([]sim.Device, error) {
 // shows all of them. Space marks or unmarks one; a digit or a click shows
 // only that one.
 func (a *app) pick(devices []sim.Device) ([]sim.Device, error) {
-	const top = 3
+	const top = 5
 	marked := make([]bool, len(devices))
 	for i, d := range devices {
 		marked[i] = d.Booted
+	}
+	labelWidth := 0
+	for _, d := range devices {
+		labelWidth = max(labelWidth, width(d.Label()))
 	}
 	sel, offset := 0, 0
 	for {
@@ -62,21 +67,30 @@ func (a *app) pick(devices []sim.Device) ([]sim.Device, error) {
 		} else if sel >= offset+visible {
 			offset = sel - visible + 1
 		}
-		fmt.Fprintf(a.t, "\x1b[2J\x1b[1;3H\x1b[1mChoose simulators\x1b[0m  \x1b[2m↑↓ move · Space mark · Enter show · ● booted\x1b[0m")
+		fmt.Fprintf(a.t, "\x1b[0m\x1b[2J\x1b[2;3H%s◆ rexsim%s  choose simulators", sgr(a.pal.accent, "1"), sgr(a.pal.dim))
+		fmt.Fprintf(a.t, "\x1b[3;3H%s↑↓ move   space select   enter open   1–9 open one   q quit\x1b[0m", sgr(a.pal.dim))
 		for i := offset; i < len(devices) && i < offset+visible; i++ {
 			d := devices[i]
-			check, dot := "[ ]", " "
+			mark, markStyle := "○", sgr(a.pal.dim)
 			if marked[i] {
-				check = "[x]"
+				mark, markStyle = "●", sgr(a.pal.accent)
 			}
+			tag := ""
 			if d.Booted {
-				dot = "●"
+				tag = "booted"
 			}
-			line := fmt.Sprintf(" %s %s %s ", check, dot, d.Label())
+			label := d.Label() + strings.Repeat(" ", labelWidth-width(d.Label()))
+			bg, text := "", sgr(a.pal.text)
 			if i == sel {
-				line = "\x1b[7m" + line + "\x1b[0m"
+				bg = a.pal.chip
+				text = sgr(bg, a.pal.chipText, "1")
+				markStyle = strings.Replace(markStyle, "\x1b[0;", "\x1b[0;"+bg+";", 1)
 			}
-			fmt.Fprintf(a.t, "\x1b[%d;2H%s", top+i-offset, line)
+			tagStyle := sgr(a.pal.dim)
+			if bg != "" {
+				tagStyle = sgr(bg, a.pal.dim)
+			}
+			fmt.Fprintf(a.t, "\x1b[%d;3H%s %s %s %s  %s%-6s \x1b[0m", top+i-offset, markStyle, mark, text, label, tagStyle, tag)
 		}
 		_ = a.t.Flush()
 
@@ -84,6 +98,9 @@ func (a *app) pick(devices []sim.Device) ([]sim.Device, error) {
 		select {
 		case <-a.ctx.Done():
 			return nil, a.ctx.Err()
+		case <-a.winch:
+			_ = a.updateSize()
+			continue
 		case ev = <-a.events:
 		}
 		switch ev := ev.(type) {

@@ -18,14 +18,21 @@ type Placer struct {
 	pending []string
 }
 
-// Draw places an RGB image over the cell box at (col, row), scaled to fill
-// cols by rows cells.
-func (p *Placer) Draw(w io.Writer, rgb []byte, width, height, col, row, cols, rows int) error {
-	f, err := os.CreateTemp("", "tty-graphics-protocol-rexsim-*.rgb")
+// Image is raw pixels: 24 for RGB or 32 for RGBA in Format.
+type Image struct {
+	Pix           []byte
+	Format        int
+	Width, Height int
+}
+
+// Draw places an image over the cell box at (col, row), scaled to fill cols
+// by rows cells. Images with a lower z sit under those with a higher one.
+func (p *Placer) Draw(w io.Writer, img Image, col, row, cols, rows, z int) error {
+	f, err := os.CreateTemp("", "tty-graphics-protocol-rexsim-*.raw")
 	if err != nil {
 		return err
 	}
-	_, err = f.Write(rgb)
+	_, err = f.Write(img.Pix)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -40,8 +47,8 @@ func (p *Placer) Draw(w io.Writer, rgb []byte, width, height, col, row, cols, ro
 		id = p.Base + 2
 	}
 	path := base64.StdEncoding.EncodeToString([]byte(f.Name()))
-	_, err = fmt.Fprintf(w, "\x1b[%d;%dH\x1b_Ga=T,q=2,f=24,t=t,s=%d,v=%d,i=%d,p=1,c=%d,r=%d,C=1;%s\x1b\\",
-		row+1, col+1, width, height, id, cols, rows, path)
+	_, err = fmt.Fprintf(w, "\x1b[%d;%dH\x1b_Ga=T,q=2,f=%d,t=t,s=%d,v=%d,i=%d,p=1,c=%d,r=%d,z=%d,C=1;%s\x1b\\",
+		row+1, col+1, img.Format, img.Width, img.Height, id, cols, rows, z, path)
 	if err != nil {
 		return err
 	}
