@@ -21,7 +21,7 @@ rexsim install
 
 ## Use
 
-Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palette. With one booted simulator it shows that one. With several, it lists every simulator with the booted ones marked: Enter shows the marked ones side by side, Space marks or unmarks one, a digit or a click shows just that one.
+Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palette. With one booted simulator it shows that one. With several, it lists every simulator with the booted ones marked: Enter shows the marked ones, each in a frame with its name below, Space marks or unmarks one, a digit or a click shows just that one.
 
 | Input | Does |
 | --- | --- |
@@ -30,6 +30,7 @@ Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palet
 | Typing, paste | Types into the phone clicked last |
 | Ctrl+B, Ctrl+L | Home, lock |
 | Ctrl+S | Saves a screenshot and types its path into the agent's input |
+| Ctrl+G | Cycles the layout: Auto, Grid, Row, Column |
 | Ctrl+] | Quit |
 
 `rexsim --udid UDID[,UDID…]` shows the given simulators without asking.
@@ -39,3 +40,7 @@ Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palet
 - Apple silicon only, because the pinned companion build is arm64.
 - Landscape is shown, but touches map as if the phone were upright.
 - Typing covers the characters on a US keyboard.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
