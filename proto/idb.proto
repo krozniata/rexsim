@@ -1,0 +1,166 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+// The subset of idb v1.7.8's proto/idb.proto that rexsim uses. Field numbers
+// and names must match the companion's, so copy changes from upstream.
+
+syntax = "proto3";
+
+package idb;
+
+option go_package = "github.com/krozniata/rexsim/internal/idbpb";
+
+service CompanionService {
+  rpc describe(TargetDescriptionRequest) returns (TargetDescriptionResponse) {}
+  rpc hid(stream HIDEvent) returns (HIDResponse) {}
+  rpc screenshot(ScreenshotRequest) returns (ScreenshotResponse) {}
+  rpc video_stream(stream VideoStreamRequest)
+      returns (stream VideoStreamResponse) {}
+}
+
+message Point {
+  double x = 1;
+  double y = 2;
+}
+
+message ScreenDimensions {
+  uint64 width = 1;
+  uint64 height = 2;
+  double density = 3;
+  uint64 width_points = 4;
+  uint64 height_points = 5;
+}
+
+message TargetDescription {
+  string udid = 1;
+  string name = 2;
+  ScreenDimensions screen_dimensions = 3;
+  string state = 4;
+  string target_type = 5;
+  string os_version = 6;
+}
+
+message TargetDescriptionRequest {
+  bool fetch_diagnostics = 1;
+}
+
+message TargetDescriptionResponse {
+  TargetDescription target_description = 1;
+}
+
+message HIDEvent {
+  enum HIDDirection {
+    DOWN = 0;
+    UP = 1;
+  }
+
+  message HIDTouch {
+    Point point = 1;
+  }
+
+  enum HIDButtonType {
+    APPLE_PAY = 0;
+    HOME = 1;
+    LOCK = 2;
+    SIDE_BUTTON = 3;
+    SIRI = 4;
+    PLAY_PAUSE = 5;
+    VOLUME_UP = 6;
+    VOLUME_DOWN = 7;
+    EJECT = 8;
+  }
+
+  message HIDButton {
+    HIDButtonType button = 1;
+  }
+
+  message HIDKey {
+    uint64 keycode = 1;
+  }
+
+  message HIDPressAction {
+    oneof action {
+      HIDTouch touch = 1;
+      HIDButton button = 2;
+      HIDKey key = 3;
+    }
+  }
+
+  message HIDPress {
+    HIDPressAction action = 1;
+    HIDDirection direction = 2;
+  }
+
+  message HIDSwipe {
+    Point start = 1;
+    Point end = 2;
+    double delta = 5;
+    double duration = 6;
+  }
+
+  message HIDDelay {
+    double duration = 1;
+  }
+
+  oneof event {
+    HIDPress press = 1;
+    HIDSwipe swipe = 2;
+    HIDDelay delay = 3;
+  }
+}
+
+message HIDResponse {}
+
+message ScreenshotRequest {
+  enum Format {
+    PNG = 0;
+    JPEG = 1;
+    TIFF = 2;
+  }
+  Format format = 1;
+}
+
+message ScreenshotResponse {
+  bytes image_data = 1;
+  string image_format = 2;
+}
+
+message Payload {
+  oneof source {
+    string file_path = 1;
+    bytes data = 2;
+  }
+}
+
+message VideoStreamRequest {
+  enum Format {
+    H264 = 0;
+    RBGA = 1;
+    MJPEG = 2;
+    MINICAP = 3;
+    I420 = 4;
+  }
+  message Start {
+    string file_path = 1;
+    uint64 fps = 2;
+    Format format = 3;
+    double compression_quality = 4;
+    double scale_factor = 5;
+  }
+  message Stop {}
+  oneof control {
+    Start start = 1;
+    Stop stop = 2;
+  }
+}
+
+message VideoStreamResponse {
+  oneof output {
+    bytes log_output = 1;
+    Payload payload = 2;
+  }
+}
