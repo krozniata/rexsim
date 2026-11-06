@@ -98,11 +98,20 @@ func (a *app) sendScreenshot(p *phone) {
 		}
 		return r
 	}, p.device.Name)
-	path := filepath.Join(dir, name+"-"+time.Now().Format("150405")+".png")
-	if err := os.WriteFile(path, png, 0o600); err != nil {
+	f, err := os.CreateTemp(dir, name+"-"+time.Now().Format("150405")+"-*.png")
+	if err != nil {
 		a.flash(err.Error())
 		return
 	}
+	_, err = f.Write(png)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		a.flash(err.Error())
+		return
+	}
+	path := f.Name()
 	if a.opts.Agent != "" && rexSend(a.opts.Agent, path+" ") == nil {
 		a.flash("Sent a screenshot of " + p.device.Name + " to the agent's input")
 		return
