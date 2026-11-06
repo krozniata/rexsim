@@ -1,6 +1,8 @@
-# rexsim
+<h1 align="center">rexsim</h1>
 
-iOS simulators in a [Rex](https://www.superlogical.com/rex) pane, next to your coding agent. Tap, swipe and type into them, run several side by side, and send the agent a screenshot with ⌃S.
+<p align="center">iOS simulators in a <a href="https://www.superlogical.com/rex">Rex</a> pane, right next to your coding agent.</p>
+
+![rexsim running five simulators next to Claude Code in Rex](docs/screenshot.png)
 
 ## Install
 
@@ -9,7 +11,7 @@ go build -o ~/.local/bin/rexsim ./cmd/rexsim
 rexsim install
 ```
 
-Press Shift+Cmd+I next to your agent to open it.
+Open it in Rex with <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>I</kbd>
 
 ## Keys
 
