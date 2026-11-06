@@ -154,8 +154,8 @@ type Companion struct {
 // socket lives in /tmp, not $TMPDIR, because a socket path must fit in 104
 // bytes. A TCP port would listen on every interface without authentication.
 func Start(ctx context.Context, bin, udid string) (*Companion, error) {
-	dir := fmt.Sprintf("/tmp/rexsim-%d", os.Getuid())
-	if err := privateDir(dir); err != nil {
+	dir, err := SocketDir()
+	if err != nil {
 		return nil, err
 	}
 	short := udid[:min(8, len(udid))]
@@ -204,6 +204,13 @@ func Start(ctx context.Context, bin, udid string) (*Companion, error) {
 		case <-tick.C:
 		}
 	}
+}
+
+// SocketDir returns rexsim's private directory for Unix sockets, creating it
+// with mode 0700.
+func SocketDir() (string, error) {
+	dir := fmt.Sprintf("/tmp/rexsim-%d", os.Getuid())
+	return dir, privateDir(dir)
 }
 
 func privateDir(dir string) error {

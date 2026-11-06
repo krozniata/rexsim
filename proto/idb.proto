@@ -12,7 +12,7 @@ syntax = "proto3";
 
 package idb;
 
-option go_package = "github.com/krozniata/rexsim/internal/idbpb";
+option go_package = "rexsim/internal/idbpb";
 
 service CompanionService {
   rpc describe(TargetDescriptionRequest) returns (TargetDescriptionResponse) {}

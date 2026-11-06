@@ -1641,7 +1641,7 @@ const file_idb_proto_rawDesc = "" +
 	"\x03hid\x12\r.idb.HIDEvent\x1a\x10.idb.HIDResponse\"\x00(\x01\x12?\n" +
 	"\n" +
 	"screenshot\x12\x16.idb.ScreenshotRequest\x1a\x17.idb.ScreenshotResponse\"\x00\x12G\n" +
-	"\fvideo_stream\x12\x17.idb.VideoStreamRequest\x1a\x18.idb.VideoStreamResponse\"\x00(\x010\x01B,Z*github.com/krozniata/rexsim/internal/idbpbb\x06proto3"
+	"\fvideo_stream\x12\x17.idb.VideoStreamRequest\x1a\x18.idb.VideoStreamResponse\"\x00(\x010\x01B\x17Z\x15rexsim/internal/idbpbb\x06proto3"
 
 var (
 	file_idb_proto_rawDescOnce sync.Once

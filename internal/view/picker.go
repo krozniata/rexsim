@@ -3,10 +3,11 @@ package view
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
-	"github.com/krozniata/rexsim/internal/sim"
-	"github.com/krozniata/rexsim/internal/term"
+	"rexsim/internal/sim"
+	"rexsim/internal/term"
 )
 
 func (a *app) chooseDevices() ([]sim.Device, error) {
@@ -43,13 +44,24 @@ func (a *app) chooseDevices() ([]sim.Device, error) {
 	if booted == 1 {
 		return devices[:1], nil
 	}
-	return a.pick(devices)
+	return a.pick(devices, "choose simulators")
+}
+
+// without returns the devices whose UDIDs aren't in udids.
+func without(devices []sim.Device, udids []string) []sim.Device {
+	var rest []sim.Device
+	for _, d := range devices {
+		if !slices.Contains(udids, d.UDID) {
+			rest = append(rest, d)
+		}
+	}
+	return rest
 }
 
 // pick lists the simulators with the booted ones first and marked, so Enter
 // shows all of them. Space marks or unmarks one; a digit or a click shows
 // only that one.
-func (a *app) pick(devices []sim.Device) ([]sim.Device, error) {
+func (a *app) pick(devices []sim.Device, title string) ([]sim.Device, error) {
 	const top = 5
 	marked := make([]bool, len(devices))
 	for i, d := range devices {
@@ -67,7 +79,7 @@ func (a *app) pick(devices []sim.Device) ([]sim.Device, error) {
 		} else if sel >= offset+visible {
 			offset = sel - visible + 1
 		}
-		fmt.Fprintf(a.t, "\x1b[0m\x1b[2J\x1b[2;3H%s◆ rexsim%s  choose simulators", sgr(a.pal.accent, "1"), sgr(a.pal.dim))
+		fmt.Fprintf(a.t, "\x1b[0m\x1b[2J\x1b[2;3H%s◆ rexsim%s  %s", sgr(a.pal.accent, "1"), sgr(a.pal.dim), title)
 		fmt.Fprintf(a.t, "\x1b[3;3H%s↑↓ move   space select   enter open   1–9 open one   q quit\x1b[0m", sgr(a.pal.dim))
 		for i := offset; i < len(devices) && i < offset+visible; i++ {
 			d := devices[i]

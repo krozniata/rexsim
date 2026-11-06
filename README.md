@@ -8,6 +8,7 @@ An iOS simulator in a [Rex](https://www.superlogical.com/rex) pane. Tap, swipe, 
 - rexsim talks gRPC to one companion per simulator over a Unix socket in `/tmp/rexsim-$UID` (mode 0700). It never opens a TCP port.
 - Frames arrive as raw BGRA at the size the phone is drawn. Unchanged frames are dropped. The rest go to Rex as kitty graphics through temporary files (`t=t`), so pixel data doesn't pass through the terminal as base64.
 - Mouse reports in pixels (mode 1016) map a click to an exact point on the phone. A drag moves the finger live, rather than sending one swipe when you let go.
+- Each simulator connects in the background, so a booting one shows as an empty frame while the others stay usable.
 - Simulator.app doesn't need to be open.
 
 ## Install
@@ -27,10 +28,14 @@ Press Shift+Cmd+I beside an agent, or run "Toggle rexsim" from the command palet
 | --- | --- |
 | Click, drag | Tap, swipe |
 | Wheel | Scroll |
-| Typing, paste | Types into the phone clicked last |
+| Typing, paste | Types into the focused phone, the one clicked last |
 | Ctrl+B, Ctrl+L | Home, lock |
 | Ctrl+S | Saves a screenshot and types its path into the agent's input |
 | Ctrl+G | Cycles the layout: Auto, Grid, Row, Column |
+| Ctrl+F | Shows only the focused phone, filling the pane, or goes back to all of them |
+| Ctrl+N, Ctrl+P | Moves focus to the next or previous phone |
+| Ctrl+O | Opens a popup to add simulators, booting them if needed |
+| Ctrl+W | Takes the focused simulator out of the pane and shuts it down |
 | Ctrl+] | Quit |
 
 `rexsim --udid UDID[,UDID…]` shows the given simulators without asking.

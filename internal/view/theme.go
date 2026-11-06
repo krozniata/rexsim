@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/krozniata/rexsim/internal/term"
+	"rexsim/internal/term"
 )
 
 // palette holds SGR parameters, combined by sgr.

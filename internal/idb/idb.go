@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/krozniata/rexsim/internal/idbpb"
+	pb "rexsim/internal/idbpb"
 )
 
 type Screen struct {

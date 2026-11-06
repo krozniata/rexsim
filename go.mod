@@ -1,4 +1,4 @@
-module github.com/krozniata/rexsim
+module rexsim
 
 go 1.27.3
 

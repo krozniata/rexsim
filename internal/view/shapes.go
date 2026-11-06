@@ -4,6 +4,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"rexsim/internal/kitty"
 )
 
 // screenRadius is a phone's screen corner radius as a fraction of its width.
@@ -31,12 +33,8 @@ func cornerMask(r int) []uint8 {
 
 // toRGBA converts BGRA pixels, whose rows are stride bytes apart, to tightly
 // packed RGBA, and makes the corners outside the screen's radius transparent.
-func toRGBA(dst, bgra []byte, width, height, stride int, mask []uint8, r int) []byte {
-	n := width * height * 4
-	if cap(dst) < n {
-		dst = make([]byte, n)
-	}
-	dst = dst[:n]
+func toRGBA(bgra []byte, width, height, stride int, mask []uint8, r int) []byte {
+	dst := make([]byte, width*height*4)
 	i := 0
 	for y := 0; y < height; y++ {
 		row := bgra[y*stride : y*stride+width*4]
@@ -56,6 +54,20 @@ func toRGBA(dst, bgra []byte, width, height, stride int, mask []uint8, r int) []
 		}
 	}
 	return dst
+}
+
+// thumbnail shrinks RGBA pixels to at most maxHeight rows by sampling, which
+// is enough while an image is moving.
+func thumbnail(rgba []byte, width, height, maxHeight int) kitty.Image {
+	step := max(1, (height+maxHeight-1)/maxHeight)
+	w, h := width/step, height/step
+	pix := make([]byte, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			copy(pix[(y*w+x)*4:][:4], rgba[((y*step)*width+x*step)*4:][:4])
+		}
+	}
+	return kitty.Image{Pix: pix, Format: 32, Width: w, Height: h}
 }
 
 // roundedOutline draws an anti-aliased rounded rectangle outline in an RGBA
