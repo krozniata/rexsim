@@ -2,7 +2,7 @@
 
 <p align="center">iOS simulators in a <a href="https://www.superlogical.com/rex">Rex</a> pane, right next to your coding agent.</p>
 
-![rexsim running five simulators next to Claude Code in Rex](docs/screenshot.png)
+![rexsim running in Rex](docs/screenshot.png)
 
 ## Install
 
