@@ -4,6 +4,15 @@
 
 ![rexsim running in Rex](docs/screenshot.png)
 
+## Requirements
+
+- Apple Silicon Mac
+- Xcode with at least one iOS simulator
+- Go 1.27.3 or later
+- [Rex](https://www.superlogical.com/rex)
+
+On first run rexsim downloads Meta's [idb_companion](https://github.com/facebook/idb) 1.7.8 from its GitHub releases, checks its SHA-256, and caches it. Set `REXSIM_COMPANION` to use your own build instead.
+
 ## Install
 
 ```sh
@@ -25,4 +34,4 @@ Open it in Rex with <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>I</kbd>
 | ⌃O | Show or hide simulators |
 | ⌃] | Quit |
 
-MIT license.
+MIT license. Third-party notices are in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
