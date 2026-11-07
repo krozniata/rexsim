@@ -35,7 +35,7 @@ export class Pointer {
     if (m.button >= 64) {
       if (m.button > 65 || m.release || m.motion) return;
       const p = this.phoneAt(m.x, m.y);
-      if (!p) return;
+      if (!p || (a.solo && p !== a.focus)) return;
       const dir = m.button === 64 ? 1 : -1;
       if (p.session?.dragScroll) {
         this.dragWheel(p, m, dir);
@@ -49,8 +49,9 @@ export class Pointer {
     } else if (m.button === 0 && !m.motion && !m.release) {
       this.lift();
       const p = this.phoneAt(m.x, m.y);
-      if (!p) {
-        for (const q of a.phones) if (contains(q.frame, m.x, m.y)) a.setFocus(q);
+      if (!p || (a.solo && p !== a.focus)) {
+        const q = p ?? a.phones.find((q) => contains(q.frame, m.x, m.y));
+        if (q) await a.select(q);
         return;
       }
       a.setFocus(p);

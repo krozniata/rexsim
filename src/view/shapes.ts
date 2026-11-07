@@ -96,20 +96,37 @@ export function toRGB(
   const dst = out?.length === width * height * 3 ? out : new Uint8Array(width * height * 3);
   const src = pix.byteOffset % 4 === 0 ? pix : new Uint8Array(pix);
   const s32 = new Uint32Array(src.buffer, src.byteOffset, src.byteLength >>> 2);
+  const d32 = new Uint32Array(dst.buffer, dst.byteOffset, dst.byteLength >>> 2);
   const rowWords = stride >>> 2;
-  const rs = bgra ? 16 : 0;
-  const bs = bgra ? 0 : 16;
-  let i = 0;
+  const rgb = bgra ? (v: number) => ((v >>> 16) & 0xff) | (v & 0xff00) | ((v & 0xff) << 16) : (v: number) => v & 0xffffff;
+  // Four pixels fill three words. A row whose length isn't a multiple of
+  // four leaves part of a word for the next row, which push carries.
+  let o = 0;
+  let phase = 0;
+  let acc = 0;
+  const push = (v: number) => {
+    if (phase === 0) acc = v;
+    else if (phase === 1) (d32[o++] = acc | (v << 24)), (acc = v >>> 8);
+    else if (phase === 2) (d32[o++] = acc | (v << 16)), (acc = v >>> 16);
+    else (d32[o++] = acc | (v << 8)), (acc = 0);
+    phase = (phase + 1) & 3;
+  };
   for (let y = 0; y < height; y++) {
-    const end = y * rowWords + width;
-    for (let j = y * rowWords; j < end; j++) {
-      const v = s32[j];
-      dst[i] = v >>> rs;
-      dst[i + 1] = v >>> 8;
-      dst[i + 2] = v >>> bs;
-      i += 3;
+    let j = y * rowWords;
+    const end = j + width;
+    while (phase !== 0 && j < end) push(rgb(s32[j++]));
+    for (; j + 4 <= end; j += 4) {
+      const p0 = rgb(s32[j]);
+      const p1 = rgb(s32[j + 1]);
+      const p2 = rgb(s32[j + 2]);
+      const p3 = rgb(s32[j + 3]);
+      d32[o++] = p0 | (p1 << 24);
+      d32[o++] = (p1 >>> 8) | (p2 << 16);
+      d32[o++] = (p2 >>> 16) | (p3 << 8);
     }
+    while (j < end) push(rgb(s32[j++]));
   }
+  for (let k = o * 4; k < dst.length; k++, acc >>>= 8) dst[k] = acc;
   fillCorners(dst, width, height, mask, r, bg);
   return dst;
 }
@@ -134,21 +151,75 @@ export function fillCorners(dst: Uint8Array, width: number, height: number, mask
   }
 }
 
+// inCanvas draws img at (left, top) in an image of width by height,
+// filling the rest with fill, or leaving it transparent for RGBA.
+export function inCanvas(img: Image, width: number, height: number, left: number, top: number, fill: RGB | null): Image {
+  const n = img.format / 8;
+  const out = new Uint8Array(width * height * n);
+  if (n === 3 && fill) for (let i = 0; i < out.length; i += 3) out.set(fill, i);
+  const x0 = Math.max(0, left);
+  const x1 = Math.min(width, left + img.width);
+  if (x1 <= x0) return { pix: out, format: img.format, width, height };
+  for (let y = Math.max(0, top); y < Math.min(height, top + img.height); y++) {
+    const from = ((y - top) * img.width + (x0 - left)) * n;
+    out.set(img.pix.subarray(from, from + (x1 - x0) * n), (y * width + x0) * n);
+  }
+  return { pix: out, format: img.format, width, height };
+}
+
 // thumbnail shrinks RGB or RGBA pixels, as format says, to at most
-// maxHeight rows by sampling, which is enough while an image is moving.
+// maxHeight rows, averaging each block of pixels so text doesn't alias as
+// it moves.
 export function thumbnail(pix: Uint8Array, format: 24 | 32, width: number, height: number, maxHeight: number): Image {
   const step = Math.max(1, Math.ceil(height / maxHeight));
   const w = Math.trunc(width / step);
   const h = Math.trunc(height / step);
   const n = format / 8;
   const out = new Uint8Array(w * h * n);
+  const area = step * step;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const from = (y * step * width + x * step) * n;
-      out.set(pix.subarray(from, from + n), (y * w + x) * n);
+      for (let c = 0; c < n; c++) {
+        let sum = 0;
+        for (let dy = 0; dy < step; dy++) {
+          const row = ((y * step + dy) * width + x * step) * n + c;
+          for (let dx = 0; dx < step; dx++) sum += pix[row + dx * n];
+        }
+        out[(y * w + x) * n + c] = sum / area;
+      }
     }
   }
   return { pix: out, format, width: w, height: h };
+}
+
+// blur softens an image with a box blur of radius r pixels, across and then
+// down, each pass a running sum along every line, clamped at its ends.
+export function blur(img: Image, r: number): Image {
+  if (r < 1) return img;
+  const { width: w, height: h } = img;
+  const n = img.format / 8;
+  const div = 2 * r + 1;
+  // pass blurs lines of len pixels, step apart within a line and lineStep
+  // apart from one line to the next.
+  const pass = (src: Uint8Array, lines: number, len: number, step: number, lineStep: number) => {
+    const out = new Uint8Array(src.length);
+    const last = (len - 1) * step;
+    for (let line = 0; line < lines; line++) {
+      const base = line * lineStep;
+      for (let c = 0; c < n; c++) {
+        const o = base + c;
+        let sum = src[o] * (r + 1);
+        for (let i = 1; i <= r; i++) sum += src[o + Math.min(i, len - 1) * step];
+        for (let i = 0; i < len; i++) {
+          out[o + i * step] = sum / div;
+          sum += src[o + Math.min(last, (i + r + 1) * step)] - src[o + Math.max(0, i - r) * step];
+        }
+      }
+    }
+    return out;
+  };
+  const across = pass(img.pix, h, w, n, w * n);
+  return { ...img, pix: pass(across, w, h, w * n, n) };
 }
 
 // roundedOutline draws an anti-aliased rounded rectangle outline in an RGBA

@@ -44,32 +44,38 @@ export function phoneAccent(a: App, p: Phone): string {
 }
 
 // drawFrame draws the phone's border, in its accent colour when it has the
-// keyboard, and its caption below.
+// keyboard among others in the grid, and below it its name over its OS or
+// state. While one phone fills the pane its size already says so. Each caption line
+// clears only its own width, since a thumbnail can sit to its right.
 function drawFrame(a: App, p: Phone): void {
   const f = p.frame;
   if (f.cols < 3) return;
-  const focused = p === a.focus && a.visible().length > 1;
+  const focused = p === a.focus && !a.solo && a.visible().length > 1;
   drawBorder(a, p, focused);
 
   const bottom = f.row + f.rows - 1 - captionRows;
   const room = f.cols + gapCols - 1;
-  let name = p.device.name;
+  const name = p.device.name;
   let detail: string;
   let nameStyle = sgr(a.pal.text, "1");
   if (p.state.kind === "failed") {
-    detail = "  " + p.state.reason;
+    detail = p.state.reason;
     nameStyle = sgr(a.pal.err, "1");
   } else if (p.state.kind === "connecting") {
-    detail = p.device.booted ? "  connecting…" : "  booting…";
+    detail = p.device.booted ? "connecting…" : "booting…";
   } else {
-    detail = "  " + p.state.session.os;
+    detail = p.state.session.os;
     if (focused) nameStyle = sgr(phoneAccent(a, p), "1");
   }
-  name = clip(name, room);
-  detail = clip(detail, room - width(name));
-  let start = f.col + Math.trunc((f.cols - width(name) - width(detail)) / 2);
-  start = Math.max(start, f.col - gapCols / 2 + 1, 0);
-  a.t.write(`\x1b[${bottom + 2};${start + 1}H\x1b[0K${nameStyle}${name}${sgr(a.pal.dim)}${detail}\x1b[0m`);
+  const left = Math.max(0, f.col - gapCols / 2 + 1);
+  const clear = " ".repeat(Math.max(0, Math.min(room, a.size.cols - left)));
+  const line = (row: number, text: string, style: string) => {
+    text = clip(text, room);
+    const start = Math.max(f.col + Math.trunc((f.cols - width(text)) / 2), left);
+    a.t.write(`\x1b[${row};${left + 1}H\x1b[0m${clear}\x1b[${row};${start + 1}H${style}${text}\x1b[0m`);
+  };
+  line(bottom + 2, name, nameStyle);
+  line(bottom + 3, detail, sgr(a.pal.dim));
 }
 
 // drawBorder draws a rounded outline around the phone as an image, because

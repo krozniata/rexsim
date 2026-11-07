@@ -3,7 +3,7 @@ import { cellHeight, cellWidth, type Size } from "../terminal/term";
 export const marginCols = 2;
 export const gapCols = 4;
 export const gapRows = 1;
-export const captionRows = 1;
+export const captionRows = 2;
 export const footerRows = 1;
 
 export type Box = { col: number; row: number; cols: number; rows: number; x: number; y: number; w: number; h: number };
@@ -96,4 +96,61 @@ export function computeLayout(s: Size, aspects: number[]): Placement[] | null {
     y += height + gapRows;
   });
   return out;
+}
+
+// thumbShare is the height of a thumbnail's screen as a share of the pane's.
+const thumbShare = 0.15;
+const minThumbRows = 3;
+
+// computeSoloLayout places the focused phone, of aspect focus, with the
+// other phones, of aspects rest, small in a column at the right. Thumbnails
+// that don't fit get an empty box, and so do all of them when the pane is
+// too small for the column.
+export function computeSoloLayout(s: Size, focus: number, rest: number[]): Placement[] | null {
+  const alone = computeLayout(s, [focus]);
+  if (!alone) return null;
+  return (rest.length > 0 && sideLayout(s, focus, rest)) || [alone[0], ...rest.map(() => ({ frame: emptyBox, box: emptyBox }))];
+}
+
+const thumbRows = (s: Size) => Math.max(minThumbRows, Math.round(s.rows * thumbShare));
+
+function thumbCols(s: Size, inner: number, ar: number): number {
+  return Math.max(1, Math.round((inner * cellHeight(s) * ar) / cellWidth(s)));
+}
+
+function cellBox(s: Size, col: number, row: number, cols: number, rows: number): Box {
+  const cw = cellWidth(s);
+  const ch = cellHeight(s);
+  return { col, row, cols, rows, x: col * cw, y: row * ch, w: cols * cw, h: rows * ch };
+}
+
+function thumb(s: Size, col: number, row: number, cols: number, inner: number): Placement {
+  return { frame: cellBox(s, col, row, cols + 2, inner + 2 + captionRows), box: cellBox(s, col + 1, row + 1, cols, inner) };
+}
+
+// sideLayout stacks the thumbnails in a column at the right, as many as fit
+// the pane's height, and centres the focused phone in what is left.
+function sideLayout(s: Size, focus: number, rest: number[]): Placement[] | null {
+  const inner = thumbRows(s);
+  const column = Math.max(...rest.map((ar) => thumbCols(s, inner, ar))) + 2;
+  const mainCols = s.cols - column - gapCols;
+  if (mainCols < 2 * marginCols + 3) return null;
+  const main = computeLayout({ ...s, cols: mainCols, width: mainCols * cellWidth(s) }, [focus]);
+  if (!main) return null;
+  const availRows = s.rows - 3 - footerRows;
+  const tall = inner + 2 + captionRows;
+  const shown = Math.min(rest.length, div(availRows + gapRows, tall + gapRows));
+  if (shown === 0) return null;
+  let y = 2 + Math.max(0, div(availRows - (shown * (tall + gapRows) - gapRows), 2));
+  const right = s.cols - marginCols;
+  return [
+    main[0],
+    ...rest.map((ar, i) => {
+      if (i >= shown) return { frame: emptyBox, box: emptyBox };
+      const cols = thumbCols(s, inner, ar);
+      const pl = thumb(s, right - column + div(column - cols - 2, 2), y, cols, inner);
+      y += tall + gapRows;
+      return pl;
+    }),
+  ];
 }

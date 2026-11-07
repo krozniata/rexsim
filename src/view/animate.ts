@@ -2,17 +2,24 @@ import type { Image } from "../terminal/kitty";
 import type { App } from "./app";
 import type { Box } from "./layout";
 import type { Phone } from "./phone";
-import { thumbnail } from "./shapes";
+import { cellHeight, cellWidth } from "../terminal/term";
+import { blur, inCanvas, thumbnail } from "./shapes";
+import type { RGB } from "./theme";
 import { drawSidebar, panelCol } from "./sidebar";
 
 const animDuration = 200;
 const animStep = 16;
-const animThumbHeight = 360;
+const animThumbHeight = 720;
+const animBlur = 1;
 
 // animate applies a change to the layout and glides the phones that stay on
 // screen from their old boxes to their new ones. Rex accepts moving a placed
 // image (a=p) but doesn't redraw for it, so each step sends a small copy of
-// the phone's last frame, the way video frames are sent. Borders, captions
+// the phone's last frame, the way video frames are sent. A step moves and
+// sizes the copy in pixels, not whole cells: it draws it at its exact spot
+// on a canvas the size of the cells around it, which the terminal stretches
+// to those cells. The copy blurs most in the middle of the move and not at
+// all at its ends, which hides its low resolution. Borders, captions
 // and the phones that leave are hidden while they move, and the sidebar
 // slides with them; relayout draws everything sharp at the end.
 export async function animate(a: App, change: () => void): Promise<void> {
@@ -54,8 +61,9 @@ export async function animate(a: App, change: () => void): Promise<void> {
     a.beginSync();
     try {
       for (const p of movers) {
-        const b = lerpBox(before.get(p)!, p.box, e);
-        p.placer.draw(a.t, thumbs.get(p)!, b.col, b.row, b.cols, b.rows, 0);
+        const soft = blur(thumbs.get(p)!, Math.round(animBlur * Math.sin(Math.PI * t)));
+        const s = step(soft, before.get(p)!, p.box, e, cellWidth(a.size), cellHeight(a.size), a.background);
+        p.placer.draw(a.t, s.img, s.col, s.row, s.cols, s.rows, 0);
       }
       if (panel) {
         const col = Math.round(panelFrom + (panelTo - panelFrom) * e);
@@ -74,7 +82,21 @@ export async function animate(a: App, change: () => void): Promise<void> {
   a.relayout();
 }
 
-function lerpBox(from: Box, to: Box, t: number): Box {
-  const lerp = (a: number, b: number) => Math.round(a + (b - a) * t);
-  return { col: lerp(from.col, to.col), row: lerp(from.row, to.row), cols: lerp(from.cols, to.cols), rows: lerp(from.rows, to.rows), x: 0, y: 0, w: 0, h: 0 };
+// step places img, the copy of a phone, a fraction t of the way from box
+// from to box to, keeping its shape.
+function step(img: Image, from: Box, to: Box, t: number, cw: number, ch: number, fill: RGB | null) {
+  const lerp = (a: number, b: number) => a + (b - a) * t;
+  const h = lerp(from.h, to.h);
+  const w = (h * img.width) / img.height;
+  const x = lerp(from.x + from.w / 2, to.x + to.w / 2) - w / 2;
+  const y = lerp(from.y, to.y);
+  const col = Math.max(0, Math.floor(x / cw));
+  const row = Math.max(0, Math.floor(y / ch));
+  const cols = Math.max(1, Math.ceil((x + w) / cw) - col);
+  const rows = Math.max(1, Math.ceil((y + h) / ch) - row);
+  // k is the copy's pixels per screen pixel, so the canvas holds the copy
+  // at its own size.
+  const k = img.height / h;
+  const canvas = inCanvas(img, Math.round(cols * cw * k), Math.round(rows * ch * k), Math.round((x - col * cw) * k), Math.round((y - row * ch) * k), fill);
+  return { img: canvas, col, row, cols, rows };
 }

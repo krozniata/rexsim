@@ -29,6 +29,9 @@ export class Phone {
   private corners: { r: number; mask: Uint8Array } = { r: -1, mask: new Uint8Array(0) };
   private stopStream: AbortController | null = null;
   scale = 0;
+  fps = 0;
+  lastPaint = 0;
+  paintTimer: ReturnType<typeof setTimeout> | undefined;
 
   placer = new Placer();
   current: ViewFrame | null = null;
@@ -82,6 +85,7 @@ export class Phone {
   startStream(signal: AbortSignal, fps: number, ready: () => void, failed: (err: Error) => void): void {
     const session = this.session;
     if (!session) return;
+    this.fps = fps;
     this.stopStream?.abort();
     const stop = new AbortController();
     this.stopStream = stop;
@@ -120,6 +124,10 @@ export class Phone {
   // and drops the alpha channel, since Rex shows opaque RGB frames more
   // smoothly than RGBA ones of the same size. An RGB frame, which nothing
   // else holds, has its corners filled in place instead.
+  hasLatest(): boolean {
+    return this.latest !== null;
+  }
+
   takeLatest(background: RGB | null = null): ViewFrame | null {
     const f = this.latest;
     if (!f) return null;
@@ -153,11 +161,11 @@ export class Phone {
     return this.device.name.includes("iPad") ? 0.72 : 0.46;
   }
 
-  // wantScale streams at the size the phone is drawn, in steps of 5% so small
-  // resizes keep the stream running.
-  wantScale(): number {
-    if (this.box.h === 0) return 0.5;
-    const s = Math.ceil((this.box.h / this.screen.height) * 20) / 20;
+  // wantScale streams at the size the phone is drawn, h pixels tall, in steps
+  // of 5% so small resizes keep the stream running.
+  wantScale(h = this.box.h): number {
+    if (h === 0) return 0.5;
+    const s = Math.ceil((h / this.screen.height) * 20) / 20;
     return Math.min(this.maxScale(), Math.max(0.1, s));
   }
 

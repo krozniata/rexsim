@@ -9,7 +9,7 @@ import * as kitty from "../terminal/kitty";
 import { cellWidth, type Size, Terminal } from "../terminal/term";
 import { animate } from "./animate";
 import { drawChrome } from "./chrome";
-import { computeLayout, emptyBox } from "./layout";
+import { computeLayout, computeSoloLayout, emptyBox } from "./layout";
 import { closeConnection, type Connection, Phone, type ViewFrame } from "./phone";
 import { chooseDevices } from "./picker";
 import { Pointer } from "./pointer";
@@ -35,6 +35,8 @@ export type AppEvent =
   | { kind: "quit" };
 
 const statusTime = 4000;
+const thumbFps = 10;
+const fetchTimeout = 200;
 const themeTimeout = 300;
 
 const namedKeys: Record<string, number> = {
@@ -124,6 +126,7 @@ export class App {
         case "ready":
           this.readyQueued = false;
           for (const p of this.phones) {
+            if (this.holdFrame(p)) continue;
             const f = p.takeLatest(this.background);
             if (f) this.paint(p, f);
           }
@@ -324,15 +327,19 @@ export class App {
       return;
     }
     this.beginSync();
+    p.lastPaint = performance.now();
     p.placer.place(this.t, path, f.format, f.width, f.height, p.box.col, p.box.row, p.box.cols, p.box.rows, 0);
     this.endSync();
     this.drawn++;
   }
 
-  // visible lists the phones on screen: all of them, or only the focused one
-  // while it fills the pane.
+  // visible lists the phones on screen. While one fills the pane it comes
+  // first, then the others in the order ⌃N reaches them, top to bottom in
+  // their column.
   visible(): Phone[] {
-    return this.solo ? [this.focus!] : this.phones;
+    if (!this.solo) return this.phones;
+    const i = this.focusIndex();
+    return [...this.phones.slice(i), ...this.phones.slice(0, i)];
   }
 
   // phoneArea is the part of the pane the phones use: all of it, or what the
@@ -352,10 +359,9 @@ export class App {
       p.box = emptyBox;
     }
     const shown = this.visible();
-    computeLayout(
-      this.phoneArea(),
-      shown.map((p) => p.aspect()),
-    )?.forEach((pl, i) => {
+    const aspects = shown.map((p) => p.aspect());
+    const placements = this.solo ? computeSoloLayout(this.phoneArea(), aspects[0], aspects.slice(1)) : computeLayout(this.phoneArea(), aspects);
+    placements?.forEach((pl, i) => {
       shown[i].frame = pl.frame;
       shown[i].box = pl.box;
     });
@@ -381,15 +387,34 @@ export class App {
           continue;
         }
         const s = p.wantScale();
-        if (s !== p.scale && p.session) {
+        const fps = this.solo && p !== this.focus ? thumbFps : this.opts.fps;
+        if ((s !== p.scale || fps !== p.fps) && p.session) {
           p.scale = s;
-          p.startStream(this.signal, this.opts.fps, () => this.queueReady(), (err) => this.events.push({ kind: "failure", p, err }));
+          this.stream(p, fps);
         }
         if (p.current) this.paint(p, p.current);
       }
     } finally {
       this.endSync();
     }
+  }
+
+  private stream(p: Phone, fps: number): void {
+    p.startStream(this.signal, fps, () => this.queueReady(), (err) => this.events.push({ kind: "failure", p, err }));
+  }
+
+  // holdFrame keeps a phone's new frame back while it streams below the
+  // pane's rate, as a thumbnail does, and paints it once its turn comes. A
+  // simulator sends at the rate asked; an emulator sends every change.
+  private holdFrame(p: Phone): boolean {
+    if (p.fps >= this.opts.fps || !p.hasLatest()) return false;
+    const wait = 1000 / p.fps - (performance.now() - p.lastPaint);
+    if (wait <= 0) return false;
+    p.paintTimer ??= setTimeout(() => {
+      p.paintTimer = undefined;
+      this.queueReady();
+    }, wait);
+    return true;
   }
 
   private queueReady(): void {
@@ -451,7 +476,7 @@ export class App {
         await this.toggleSolo();
         break;
       case "ctrl+n":
-        this.focusNext();
+        await this.focusNext();
         break;
       case "ctrl+o":
         await toggleSidebar(this);
@@ -515,13 +540,34 @@ export class App {
   }
 
   // focusNext gives the keyboard to the next phone. While one phone fills the
-  // pane, that phone takes its place.
-  private focusNext(): void {
+  // pane, that phone glides into its place.
+  private async focusNext(): Promise<void> {
     const n = this.phones.length;
     if (n < 2) return;
-    this.focus = this.phones[(this.focusIndex() + 1) % n];
-    if (this.solo) this.relayout();
-    else drawChrome(this);
+    await this.select(this.phones[(this.focusIndex() + 1) % n]);
+  }
+
+  // select gives the keyboard to p. While one phone fills the pane, p takes
+  // its place and the one before joins the column. A thumbnail only has the
+  // small frames it streams, which would blur as it grows, so p first
+  // streams at its new size, and glides once that frame is in or after
+  // fetchTimeout.
+  async select(p: Phone): Promise<void> {
+    if (this.focus === p) return;
+    if (!this.solo) {
+      this.setFocus(p);
+      return;
+    }
+    const big = this.focus!.box.h;
+    if (p.session && big > 0) {
+      p.scale = p.wantScale(big);
+      this.stream(p, this.opts.fps);
+      const deadline = performance.now() + fetchTimeout;
+      while (!p.hasLatest() && performance.now() < deadline) await Bun.sleep(5);
+      const f = p.takeLatest(this.background);
+      if (f) p.current = f;
+    }
+    await animate(this, () => (this.focus = p));
   }
 
   setFocus(p: Phone): void {
