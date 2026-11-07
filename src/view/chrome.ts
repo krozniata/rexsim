@@ -31,9 +31,6 @@ export function drawChrome(a: App): void {
 
 function drawHeader(a: App): void {
   a.t.write(`\x1b[1;1H\x1b[0m\x1b[2K ${sgr(a.pal.accent, "1")}◆ rexsim`);
-  const n = a.phones.length;
-  if (a.solo && n > 1) a.t.write(`${sgr(a.pal.dim)}  ${a.focusIndex() + 1} of ${n} · focus`);
-  else if (n > 1) a.t.write(`${sgr(a.pal.dim)}  ${n} devices`);
 }
 
 export function platformAccent(a: App, platform: Platform): string {
@@ -83,10 +80,8 @@ function drawFrame(a: App, p: Phone): void {
 // box-drawing characters can't round a corner by more than a cell. The
 // outline sits a uniform gap outside the screen, and its radius is the
 // screen's plus that gap, so the corners stay concentric. It sits above the
-// frame, whose corners may be filled in, and never overlaps the screen
-// itself. It is redrawn only
-// when its look changes, and the terminal keeps it in both colours, so a
-// change of focus sends no pixels.
+// frame, whose corners are filled in, and never overlaps the screen itself.
+// It is redrawn only when its look changes.
 function drawBorder(a: App, p: Phone, focused: boolean): void {
   const color = focused ? phoneAccent(a, p) : a.pal.frame;
   const key = JSON.stringify(p.frame) + color;
@@ -107,29 +102,21 @@ function drawBorder(a: App, p: Phone, focused: boolean): void {
   const right = left + b.w + 2 * gap;
   const bottom = top + b.h + 2 * gap;
   const r = screenRadius(p.aspect(), p.device.platform) * b.w + gap;
-  const make = () => ({ pix: roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color)), format: 32, width: w, height: h });
+  const img = { pix: roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color)), format: 32, width: w, height: h };
   try {
-    p.border.show(a.t, JSON.stringify(p.frame), color, make, f.col, f.row, f.cols, rows, 1);
+    p.border.draw(a.t, img, f.col, f.row, f.cols, rows, 1);
   } catch (err) {
     a.flash((err as Error).message);
   }
 }
 
 // drawFooter shows the shortcuts that act on the device, then those that
-// act on rexsim, with the frame rate at the end. A status message takes the
-// place of the shortcuts for a moment.
+// act on rexsim. A status message takes their place for a moment.
 function drawFooter(a: App): void {
   a.t.write(`\x1b[${a.size.rows};1H\x1b[0m\x1b[2K `);
-  let rate = "○ idle ";
-  let rateStyle = sgr(a.pal.dim);
-  if (a.fps > 0) {
-    rate = `● ${a.fps} fps `;
-    rateStyle = sgr(a.pal.accent);
-  }
-  const room = a.size.cols - width(rate) - 2;
+  const room = a.size.cols - 2;
   if (Date.now() < a.statusUntil) a.t.write(sgr(a.pal.accent) + clip(a.status, room));
   else drawHints(a, room, hintGroups(a));
-  a.t.write(`\x1b[${a.size.rows};${a.size.cols - width(rate) + 1}H${rateStyle}${rate}`);
 }
 
 type Hint = [key: string, label: string];
@@ -137,10 +124,10 @@ type Hint = [key: string, label: string];
 // hintGroups lists the shortcuts that act on the device, then those that
 // act on rexsim itself.
 function hintGroups(a: App): Hint[][] {
-  if (a.sidebar) return [[["↑↓", "move"], ["space", "show or hide"], ["esc", "close"], ["⌃]", "quit"]]];
-  const device: Hint[] = [["⌃B", "home"], ["⌃L", "lock"], ["⌃S", "screenshot"]];
+  if (a.sidebar) return [[["↑↓", "move"], ["space", "show or hide"], ["esc", "close"]]];
+  const device: Hint[] = [["⌃B", "home"], ["⌃S", "screenshot"]];
   if (a.focus?.device.platform === "android") device.splice(1, 0, ["esc", "back"]);
-  let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "devices"], ["⌃]", "quit"]];
+  let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "devices"]];
   if (a.phones.length < 2) rexsim = rexsim.slice(2);
   return [device, rexsim];
 }

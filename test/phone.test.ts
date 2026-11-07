@@ -44,7 +44,7 @@ function streaming(platform: Platform, width: number, height: number, fps: numbe
   const p = new Phone({ id: "x", name: "x", runtime: "", booted: true, platform });
   p.state = { kind: "ready", session };
   p.startStream(new AbortController().signal, fps, () => {}, () => {});
-  const feed: Feed = (pix, channels = 4) => onFrame!({ width, height, stride: width * channels, channels, bgra: true, pix });
+  const feed: Feed = (pix, channels = 4) => onFrame!({ width, height, stride: width * channels, channels, pix });
   return { p, feed };
 }
 

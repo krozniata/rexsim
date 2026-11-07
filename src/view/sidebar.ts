@@ -57,7 +57,7 @@ async function toggleDevice(a: App): Promise<void> {
   const p = phoneFor(a, d.id);
   if (p) {
     if (a.phones.length === 1) {
-      a.flash("Keep one device open, or quit with ⌃]");
+      a.flash("Keep one device open, or close rexsim with ⇧⌘I");
       return;
     }
     await animate(a, () => {

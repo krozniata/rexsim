@@ -32,10 +32,9 @@ async function connect(signal: AbortSignal, d: Device, progress: (text: string) 
       maxPixels,
       stream: (signal, fps, scale, onFrame) => client.stream(signal, fps, scale, screen, onFrame),
       touch: (x, y, down) => client.touch(x, y, down),
-      button: (b) => client.button(b),
+      home: () => client.home(),
       key: (code, shift) => client.key(code, shift),
       text: (s) => client.text(s),
-      swipe: (x0, y0, x1, y1, seconds) => client.swipe(x0, y0, x1, y1, seconds),
       screenshot: () => client.screenshot(),
       close,
     };

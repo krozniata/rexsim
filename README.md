@@ -47,12 +47,11 @@ for Claude Code, and to `~/.agents/skills/rexsim` for Codex, OpenCode and Pi.
 | Key | Does |
 | --- | --- |
 | ⌃B | Home |
-| ⌃L | Lock |
 | Esc | Back, on Android |
 | ⌃S | Screenshot to the agent |
 | ⌃F | Focus one device |
 | ⌃N | Next device |
 | ⌃O | Show or hide devices |
-| ⌃] | Quit |
+| ⇧⌘I | Open or close rexsim |
 
 MIT license. Third-party notices are in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

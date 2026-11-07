@@ -15,9 +15,7 @@ export type Screen = { width: number; height: number; widthPoints: number; heigh
 // Frame holds BGRA pixels from a simulator, or packed RGB ones, 3 bytes
 // each, from an emulator. Rows are stride bytes apart, because a
 // simulator's framebuffer pads each row.
-export type Frame = { width: number; height: number; stride: number; channels: 3 | 4; bgra: boolean; pix: Uint8Array };
-
-export type Button = "HOME" | "LOCK";
+export type Frame = { width: number; height: number; stride: number; channels: 3 | 4; pix: Uint8Array };
 
 // Session is a connected phone. Its methods take points.
 export interface Session {
@@ -29,17 +27,13 @@ export interface Session {
   // warning says why the phone may stream poorly, such as an emulator that
   // renders on the CPU.
   readonly warning?: string;
-  // dragScroll is true when the wheel should scroll by dragging one finger
-  // that stays down rather than by a swipe per burst of the wheel.
-  readonly dragScroll?: boolean;
   // stream asks for fps frames a second, which an emulator ignores: it
   // sends one whenever the screen changes.
   stream(signal: AbortSignal, fps: number, scale: number, onFrame: (f: Frame) => void): Promise<Error>;
   touch(x: number, y: number, down: boolean): Promise<void>;
-  button(b: Button): Promise<void>;
+  home(): Promise<void>;
   key(code: number, shift: boolean): Promise<void>;
   text(s: string): Promise<void>;
-  swipe(x0: number, y0: number, x1: number, y1: number, seconds: number): Promise<void>;
   screenshot(): Promise<Uint8Array>;
   close(): Promise<void>;
 }

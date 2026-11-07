@@ -1,5 +1,5 @@
 // Android emulators, which their own gRPC service streams and drives.
-import type { Button, Device, Frame, Provider, Screen, Session } from "../device";
+import type { Device, Frame, Provider, Screen, Session } from "../device";
 import type { Message } from "../grpc";
 import { KeyLeftShift, keysFor } from "../keys";
 import * as avd from "./avd";
@@ -27,10 +27,6 @@ async function connect(signal: AbortSignal, d: Device): Promise<Session> {
 // Emulator is a booted emulator as a Session. It converts points to the
 // pixels that the emulator's touches take.
 export class Emulator implements Session {
-  // A new finger stops the fling that the last one started, and Android
-  // ignores the first few points of every drag, so separate swipes per
-  // burst of the wheel scroll in fits and starts.
-  readonly dragScroll = true;
   private scale: number;
 
   constructor(
@@ -55,8 +51,8 @@ export class Emulator implements Session {
     return { touches: [{ x: Math.round(x * this.scale), y: Math.round(y * this.scale), identifier: 0, pressure: down ? 1 : 0 }] };
   }
 
-  button(b: Button): Promise<void> {
-    return this.client.send("sendKey", [{ eventType: "keypress", key: b === "HOME" ? "GoHome" : "Power" }]);
+  home(): Promise<void> {
+    return this.client.send("sendKey", [{ eventType: "keypress", key: "GoHome" }]);
   }
 
   key(code: number, shift: boolean): Promise<void> {
@@ -68,19 +64,6 @@ export class Emulator implements Session {
   text(s: string): Promise<void> {
     const events = keysFor(s).flatMap((k) => keyEvents(k.code, k.shift));
     return events.length ? this.client.send("sendKey", events) : Promise.resolve();
-  }
-
-  // swipe drags a finger in steps over the given time, because the emulator
-  // has no swipe of its own and Android reads a fling's speed from the
-  // steps. They queue as one batch so a click can't land in the middle.
-  swipe(x0: number, y0: number, x1: number, y1: number, seconds: number): Promise<void> {
-    const gap = 10;
-    const steps = Math.max(2, Math.round((seconds * 1000) / gap));
-    const events: Message[] = [];
-    for (let i = 0; i <= steps; i++) {
-      events.push(this.touchEvent(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, i < steps));
-    }
-    return this.client.send("sendTouch", events, gap);
   }
 
   screenshot(): Promise<Uint8Array> {

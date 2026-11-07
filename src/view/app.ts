@@ -94,8 +94,6 @@ export class App {
 
   status = "";
   statusUntil = 0;
-  drawn = 0;
-  fps = 0;
 
   constructor(
     readonly t: Terminal,
@@ -141,8 +139,6 @@ export class App {
           if (this.updateSize()) this.relayout();
           break;
         case "tick":
-          this.fps = this.drawn;
-          this.drawn = 0;
           if (this.sizeChanged()) this.relayout();
           else drawChrome(this);
           break;
@@ -195,7 +191,7 @@ export class App {
 
     for (const p of this.phones.filter((p) => p.state.kind === "failed" && wanted.some((d) => d.id === p.device.id))) {
       this.phones.splice(this.phones.indexOf(p), 1);
-      p.border.clear(this.t);
+      p.border.delete(this.t);
       void p.close();
     }
     const fresh = wanted.filter((d) => !this.phones.some((p) => p.device.id === d.id));
@@ -330,7 +326,6 @@ export class App {
     this.beginSync();
     p.placer.place(this.t, path, 24, f.width, f.height, p.box.col, p.box.row, p.box.cols, p.box.rows, 0);
     this.endSync();
-    this.drawn++;
   }
 
   // visible lists the phones on screen. While one fills the pane it comes
@@ -454,9 +449,7 @@ export class App {
   private async key(k: Key): Promise<void> {
     if (this.sidebar && (await sidebarKey(this, k))) return;
     switch (k.name) {
-      case "ctrl+]":
       case "ctrl+c":
-      case "ctrl+q":
         throw new Quit();
       case "ctrl+f":
         await this.toggleSolo();
@@ -473,10 +466,7 @@ export class App {
     if (!c) return;
     switch (k.name) {
       case "ctrl+b":
-        this.report(c.button("HOME"));
-        break;
-      case "ctrl+l":
-        this.report(c.button("LOCK"));
+        this.report(c.home());
         break;
       case "ctrl+s":
         await sendScreenshot(this, p, c);
@@ -504,7 +494,7 @@ export class App {
   removePhone(p: Phone): void {
     const i = this.phones.indexOf(p);
     this.phones.splice(i, 1);
-    p.border.clear(this.t);
+    p.border.delete(this.t);
     if (this.focus === p) this.focus = this.phones[Math.min(i, this.phones.length - 1)];
     if (this.phones.length < 2) this.solo = false;
     void p.close().then(() => shutdown(p.device));

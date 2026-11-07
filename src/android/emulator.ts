@@ -32,15 +32,11 @@ export class Client {
     return grpc.unary(this.svc, method, req, this.meta, signal);
   }
 
-  // send makes input calls one at a time, gap milliseconds apart. Unary
-  // calls share one connection and can overtake each other, which would
-  // reorder a finger's moves.
-  send(method: string, reqs: Message[], gap = 0): Promise<void> {
+  // send makes input calls one at a time. Unary calls share one connection
+  // and can overtake each other, which would reorder a finger's moves.
+  send(method: string, reqs: Message[]): Promise<void> {
     return this.sending.run(async () => {
-      for (const [i, req] of reqs.entries()) {
-        if (i > 0 && gap > 0) await Bun.sleep(gap);
-        await this.call(method, req);
-      }
+      for (const req of reqs) await this.call(method, req);
     });
   }
 
@@ -78,7 +74,7 @@ export class Client {
       const height: number = img.format?.height ?? 0;
       const pix: Uint8Array | undefined = img.image;
       if (!width || !height || !pix || pix.length < width * height * 3) return;
-      onFrame({ width, height, stride: width * 3, channels: 3, bgra: false, pix });
+      onFrame({ width, height, stride: width * 3, channels: 3, pix });
     });
   }
 

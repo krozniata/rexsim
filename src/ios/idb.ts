@@ -2,7 +2,7 @@
 // the raw framebuffer stream, HID input and screenshots.
 import type * as grpcjs from "@grpc/grpc-js";
 import idbProto from "../../proto/idb.proto" with { type: "text" };
-import type { Button, Frame, Screen } from "../device";
+import type { Frame, Screen } from "../device";
 import * as grpc from "../grpc";
 import { KeyLeftShift, keysFor } from "../keys";
 
@@ -46,7 +46,7 @@ export class Client {
       if (!data?.length) return;
       const size = frameSize(data.length, s, scale);
       if (!size) return new Error(`unexpected frame of ${data.length} bytes at scale ${scale.toFixed(2)}`);
-      onFrame({ ...size, channels: 4, bgra: true, pix: data });
+      onFrame({ ...size, channels: 4, pix: data });
     });
     call.write({ start: { fps, format: "RBGA", compression_quality: 1, scale_factor: scale } });
     return stopped;
@@ -89,8 +89,8 @@ export class Client {
     return this.send(press({ touch: { point: { x, y } } }, down));
   }
 
-  button(b: Button): Promise<void> {
-    const action = { button: { button: b } };
+  home(): Promise<void> {
+    const action = { button: { button: "HOME" } };
     return this.send(press(action, true), press(action, false));
   }
 
@@ -103,10 +103,6 @@ export class Client {
   text(s: string): Promise<void> {
     const events = keysFor(s).flatMap((k) => keyEvents(k.code, k.shift));
     return events.length ? this.send(...events) : Promise.resolve();
-  }
-
-  swipe(x0: number, y0: number, x1: number, y1: number, seconds: number): Promise<void> {
-    return this.send({ swipe: { start: { x: x0, y: y0 }, end: { x: x1, y: y1 }, duration: seconds } });
   }
 
   async screenshot(): Promise<Uint8Array> {
@@ -137,7 +133,7 @@ function keyEvents(code: number, shift: boolean): grpc.Message[] {
 // doesn't report them and rounds the scaled size its own way. The buffer pads
 // each row to an alignment, and can hold a few rows more than the image, as
 // at full scale on a 2622-pixel-tall screen, which arrives as 2624 rows.
-export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix" | "bgra" | "channels"> | null {
+export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix" | "channels"> | null {
   for (const [dw, dh] of [
     [s.width, s.height],
     [s.height, s.width],

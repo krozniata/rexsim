@@ -1,6 +1,6 @@
 import type { Device, Frame, Screen, Session } from "../device";
 import { connect } from "../platforms";
-import { Placer, Sprites } from "../terminal/kitty";
+import { Placer } from "../terminal/kitty";
 import { emptyBox, type Box } from "./layout";
 import { cornerMask, fillCorners, screenRadius, toRGB } from "./frames";
 import type { RGB } from "./theme";
@@ -39,7 +39,7 @@ export class Phone {
   current: ViewFrame | null = null;
   frame: Box = emptyBox;
   box: Box = emptyBox;
-  border = new Sprites();
+  border = new Placer();
   borderKey = "";
 
   touching = false;
@@ -164,7 +164,7 @@ export class Phone {
       return { width: f.width, height: f.height, pix: f.pix };
     }
     const spare = this.buffers.find((b) => b !== this.current?.pix);
-    const pix = toRGB(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra, background, spare);
+    const pix = toRGB(f.pix, f.width, f.height, f.stride, this.corners.mask, r, background, spare);
     if (pix !== spare) this.buffers = [pix, ...this.buffers.filter((b) => b === this.current?.pix)];
     return { width: f.width, height: f.height, pix };
   }

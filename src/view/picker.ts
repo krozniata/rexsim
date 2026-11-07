@@ -77,7 +77,7 @@ async function pick(a: App, devices: Device[]): Promise<Device[]> {
         return chosen.length > 0 ? chosen : [devices[sel]];
       } else if (digit >= 0 && digit < devices.length) {
         return [devices[digit]];
-      } else if (ev.rune === "q" || ["esc", "ctrl+c", "ctrl+]"].includes(ev.name)) {
+      } else if (ev.rune === "q" || ["esc", "ctrl+c"].includes(ev.name)) {
         throw new Quit();
       }
     } else if (ev.kind === "mouse") {

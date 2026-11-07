@@ -27,15 +27,14 @@ export function cornerMask(r: number): Uint8Array {
   return m;
 }
 
-// toRGB converts BGRA pixels, or RGBA ones when bgra is false, whose rows
-// are stride bytes apart, to tightly packed RGB, and blends the corners
+// toRGB converts BGRA pixels, whose rows are stride bytes apart, to tightly packed RGB, and blends the corners
 // outside the screen's radius into bg. It reads a whole little-endian pixel
 // at a time, which needs the source 4-byte aligned; protobuf hands over the
 // frame at any offset, so a misaligned one is copied first. The copy uses
 // the Uint8Array constructor because Buffer's slice returns a view. It
 // writes into out when out has the right size.
 export function toRGB(
-  pix: Uint8Array, width: number, height: number, stride: number, mask: Uint8Array, r: number, bgra: boolean, bg: RGB,
+  pix: Uint8Array, width: number, height: number, stride: number, mask: Uint8Array, r: number, bg: RGB,
   out?: Uint8Array<ArrayBuffer>,
 ): Uint8Array<ArrayBuffer> {
   const dst = out?.length === width * height * 3 ? out : new Uint8Array(width * height * 3);
@@ -43,7 +42,7 @@ export function toRGB(
   const s32 = new Uint32Array(src.buffer, src.byteOffset, src.byteLength >>> 2);
   const d32 = new Uint32Array(dst.buffer, dst.byteOffset, dst.byteLength >>> 2);
   const rowWords = stride >>> 2;
-  const rgb = bgra ? (v: number) => ((v >>> 16) & 0xff) | (v & 0xff00) | ((v & 0xff) << 16) : (v: number) => v & 0xffffff;
+  const rgb = (v: number) => ((v >>> 16) & 0xff) | (v & 0xff00) | ((v & 0xff) << 16);
   // Four pixels fill three words. A row whose length isn't a multiple of
   // four leaves part of a word for the next row, which push carries.
   let o = 0;

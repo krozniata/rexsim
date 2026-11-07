@@ -6,8 +6,7 @@
   "scripts": {
     "start": "bun src/main.ts",
     "build": "bun build src/main.ts --compile --outfile bin/rexsim",
-    "test": "bun test",
-    "bench": "bun src/bench.ts"
+    "test": "bun test"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.7",
