@@ -28,6 +28,8 @@ service EmulatorController {
   rpc getScreenshot(ImageFormat) returns (Image) {}
   rpc streamScreenshot(ImageFormat) returns (stream Image) {}
   rpc setVmState(VmRunState) returns (Empty) {}
+  rpc setPhysicalModel(PhysicalModelValue) returns (Empty) {}
+  rpc getPhysicalModel(PhysicalModelValue) returns (PhysicalModelValue) {}
 }
 
 message Empty {}
@@ -134,4 +136,28 @@ message VmRunState {
   }
 
   RunState state = 1;
+}
+
+message ParameterValue {
+  repeated float data = 1 [packed = true];
+}
+
+message PhysicalModelValue {
+  enum State {
+    OK = 0;
+    NO_SERVICE = -3;
+    DISABLED = -2;
+    UNKNOWN = -1;
+  }
+
+  enum PhysicalType {
+    POSITION = 0;
+    // All values are angles in degrees.
+    // values = [x,y,z]
+    ROTATION = 1;
+  }
+
+  PhysicalType target = 1;
+  State status = 2;
+  ParameterValue value = 3;
 }

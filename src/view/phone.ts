@@ -2,7 +2,7 @@ import type { Device, Frame, Screen, Session } from "../device";
 import { connect } from "../platforms";
 import { Placer } from "../terminal/kitty";
 import { emptyBox, type Box } from "./layout";
-import { cornerMask, fillCorners, screenRadius, toRGB } from "./frames";
+import { cornerMask, cornerRadius, fillCorners, toRGB, turn } from "./frames";
 import type { RGB } from "./theme";
 
 // ViewFrame is one screen as packed RGB, its corners rounded into the pane's
@@ -25,7 +25,9 @@ export class Phone {
 
   private latest: Frame | null = null;
   private lastSum: number | bigint = 0;
+  private lastTurn = 0;
   private buffers: Uint8Array<ArrayBuffer>[] = [];
+  private turned: Uint8Array<ArrayBuffer> | undefined;
   private corners: { r: number; mask: Uint8Array } = { r: -1, mask: new Uint8Array(0) };
   private stopStream: AbortController | null = null;
   private due = false;
@@ -109,12 +111,13 @@ export class Phone {
   // so the conversion waits for takeLatest and is skipped for frames that a
   // newer one replaces before they're drawn. A companion sends frames at a
   // steady rate even when nothing changes, and an emulator repeats some, so
-  // identical ones are dropped. A frame is due at most fps times a second,
+  // identical ones are dropped, unless they turned. A frame is due at most fps times a second,
   // since an emulator sends every change whatever rate it is asked for.
   private onFrame(f: Frame, ready: () => void): void {
     const sum = Bun.hash(f.pix);
-    const same = sum === this.lastSum;
+    const same = sum === this.lastSum && (f.turn ?? 0) === this.lastTurn;
     this.lastSum = sum;
+    this.lastTurn = f.turn ?? 0;
     if (same) return;
     this.latest = f;
     if (this.due || this.dueTimer) return;
@@ -150,14 +153,20 @@ export class Phone {
   // whichever of two buffers current doesn't hold, rather than a new one
   // per frame, whose garbage collection stalls the loop now and then. An
   // emulator's frame is RGB already, and nothing else holds it, so its
-  // corners are filled in place.
+  // corners are filled in place. A frame that has to turn turns first, into
+  // a buffer of its own.
   takeLatest(background: RGB): ViewFrame | null {
-    const f = this.latest;
+    let f = this.latest;
     if (!f || !this.due) return null;
     this.latest = null;
     this.due = false;
     this.lastTake = performance.now();
-    const r = Math.trunc(screenRadius(f.width / f.height, this.device.platform) * f.width);
+    if (f.turn && f.channels === 4) {
+      const t = turn(f.pix, f.width, f.height, f.stride, f.turn, this.turned);
+      this.turned = t.pix;
+      f = { ...t, stride: t.width * 4, channels: 4 };
+    }
+    const r = Math.trunc(cornerRadius(f.width, f.height, this.device.platform));
     if (r !== this.corners.r) this.corners = { r, mask: cornerMask(r) };
     if (f.channels === 3) {
       fillCorners(f.pix, f.width, f.height, this.corners.mask, r, background);
@@ -179,11 +188,25 @@ export class Phone {
     return this.device.name.includes("iPad") ? 0.72 : 0.46;
   }
 
+  // sideways reports whether the phone shows turned a quarter from its
+  // screen's own shape.
+  get sideways(): boolean {
+    const c = this.current;
+    return c !== null && c.width > c.height !== this.screen.width > this.screen.height;
+  }
+
+  // points is the screen's size in points as it shows upright.
+  points(): [number, number] {
+    const s = this.screen;
+    return this.sideways ? [s.heightPoints, s.widthPoints] : [s.widthPoints, s.heightPoints];
+  }
+
   // wantScale streams at the size the phone is drawn, h pixels tall, in steps
   // of 5% so small resizes keep the stream running.
   wantScale(h = this.box.h): number {
     if (h === 0) return 0.5;
-    const s = Math.ceil((h / this.screen.height) * 20) / 20;
+    const tall = this.sideways ? this.screen.width : this.screen.height;
+    const s = Math.ceil((h / tall) * 20) / 20;
     return Math.min(this.maxScale(), Math.max(0.1, s));
   }
 
@@ -203,7 +226,8 @@ export class Phone {
     if (b.w === 0) return [0, 0];
     const fx = Math.min(Math.max((px - b.x) / b.w, 0), 0.999);
     const fy = Math.min(Math.max((py - b.y) / b.h, 0), 0.999);
-    return [fx * this.screen.widthPoints, fy * this.screen.heightPoints];
+    const [w, h] = this.points();
+    return [fx * w, fy * h];
   }
 }
 

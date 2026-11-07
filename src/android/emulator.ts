@@ -1,5 +1,6 @@
 // A client for the parts of the Android emulator's gRPC service that rexsim
-// uses: the screen stream, touches and keys, screenshots and shutting down.
+// uses: the screen stream, touches and keys, rotation, screenshots and
+// shutting down.
 import * as grpcjs from "@grpc/grpc-js";
 import emulatorProto from "../../proto/emulator.proto" with { type: "text" };
 import type { Frame } from "../device";
@@ -11,6 +12,10 @@ const EmulatorController = grpc.loadService(emulatorProto, "android.emulation.co
 type Message = grpc.Message;
 
 const bootTimeout = 180_000;
+
+// skins names the emulator's rotations by how many quarter turns clockwise
+// they are from portrait.
+const skins = ["PORTRAIT", "REVERSE_LANDSCAPE", "REVERSE_PORTRAIT", "LANDSCAPE"];
 
 export class Client {
   private svc: grpc.Service;
@@ -66,16 +71,31 @@ export class Client {
   // stopped. A square keeps a rotated screen as large as an upright one. The
   // emulator sends a frame only when the screen changes, and an empty one
   // while the display is off. Frames come as RGB, a quarter smaller than
-  // RGBA, which rexsim would only have to strip of its alpha.
-  stream(signal: AbortSignal, side: number, onFrame: (f: Frame) => void): Promise<Error> {
+  // RGBA, which rexsim would only have to strip of its alpha, and turned the
+  // way the emulator is held, which onFrame gets in quarter turns clockwise.
+  stream(signal: AbortSignal, side: number, onFrame: (f: Frame, turns: number) => void): Promise<Error> {
     const call: grpcjs.ClientReadableStream<any> = this.svc.streamScreenshot({ format: "RGB888", width: side, height: side }, this.meta);
     return grpc.readStream(call, signal, "the emulator stopped streaming", (img) => {
       const width: number = img.format?.width ?? 0;
       const height: number = img.format?.height ?? 0;
       const pix: Uint8Array | undefined = img.image;
       if (!width || !height || !pix || pix.length < width * height * 3) return;
-      onFrame({ width, height, stride: width * 3, channels: 3, pix });
+      onFrame({ width, height, stride: width * 3, channels: 3, pix }, Math.max(0, skins.indexOf(img.format?.rotation?.rotation)));
     });
+  }
+
+  // turns returns how many quarter turns clockwise the emulator is held from
+  // portrait. Its rotation sensor takes degrees counterclockwise about the
+  // axis out of the screen.
+  async turns(): Promise<number> {
+    const res = await this.call("getPhysicalModel", { target: "ROTATION" });
+    const z: number = res.value?.data?.[2] ?? 0;
+    return (((Math.round(-z / 90)) % 4) + 4) % 4;
+  }
+
+  async setTurns(turns: number): Promise<void> {
+    const z = [0, -90, 180, 90][turns & 3];
+    await this.call("setPhysicalModel", { target: "ROTATION", value: { data: [0, 0, z] } });
   }
 
   async screenshot(): Promise<Uint8Array> {

@@ -3,15 +3,17 @@
 import type { Platform } from "../device";
 import type { RGB } from "./theme";
 
-// screenRadius is a phone's screen corner radius as a fraction of its width.
-// The framebuffer is square, so rexsim rounds it the way the hardware is.
-// iPhones are about 55 points on 402; iPads about 18 on 820. An emulator's
-// system UI assumes square corners and puts the status bar right against
-// them, so its rounding stays small enough to keep the clock whole, and
-// follows the short side so a turned screen rounds the same.
-export function screenRadius(aspect: number, platform: Platform = "ios"): number {
-  if (platform === "android") return 0.035 / Math.max(1, aspect);
-  return aspect < 0.6 ? 0.137 : 0.022;
+// cornerRadius is the corner radius in pixels of a screen drawn width by
+// height. The framebuffer is square, so rexsim rounds it the way the
+// hardware is: iPhones are about 55 points on 402, iPads about 18 on 820.
+// An emulator's system UI assumes square corners and puts the status bar
+// right against them, so its rounding stays small enough to keep the clock
+// whole. The radius follows the short side, so a turned screen rounds the
+// same.
+export function cornerRadius(width: number, height: number, platform: Platform = "ios"): number {
+  const short = Math.min(width, height);
+  if (platform === "android") return 0.035 * short;
+  return (short / Math.max(width, height) < 0.6 ? 0.137 : 0.022) * short;
 }
 
 // cornerMask holds the anti-aliased coverage of a top-left corner of radius
@@ -73,6 +75,32 @@ export function toRGB(
   for (let k = o * 4; k < dst.length; k++, acc >>>= 8) dst[k] = acc;
   fillCorners(dst, width, height, mask, r, bg);
   return dst;
+}
+
+// turn rotates BGRA pixels, whose rows are stride bytes apart, by quarter
+// turns clockwise into packed rows, reusing out when it has the right size.
+// Like toRGB it reads whole pixels, so a misaligned source is copied first.
+export function turn(
+  pix: Uint8Array, width: number, height: number, stride: number, turns: number, out?: Uint8Array<ArrayBuffer>,
+): { pix: Uint8Array<ArrayBuffer>; width: number; height: number } {
+  turns &= 3;
+  const dst = out?.length === width * height * 4 ? out : new Uint8Array(width * height * 4);
+  const src = pix.byteOffset % 4 === 0 ? pix : new Uint8Array(pix);
+  const s32 = new Uint32Array(src.buffer, src.byteOffset, src.byteLength >>> 2);
+  const d32 = new Uint32Array(dst.buffer, dst.byteOffset, dst.byteLength >>> 2);
+  const rowWords = stride >>> 2;
+  for (let y = 0; y < height; y++) {
+    const row = y * rowWords;
+    for (let x = 0; x < width; x++) {
+      const k =
+        turns === 1 ? x * height + height - 1 - y
+        : turns === 2 ? (height - 1 - y) * width + width - 1 - x
+        : turns === 3 ? (width - 1 - x) * height + y
+        : y * width + x;
+      d32[k] = s32[row + x];
+    }
+  }
+  return turns % 2 === 1 ? { pix: dst, width: height, height: width } : { pix: dst, width, height };
 }
 
 // fillCorners blends the corners of packed RGB pixels outside the screen's

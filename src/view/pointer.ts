@@ -70,7 +70,7 @@ export class Pointer {
   // reaches the screen's edge lifts and starts again from the far side.
   private dragWheel(p: Phone, m: Mouse, dir: number): void {
     const s = p.session!;
-    const h = p.screen.heightPoints;
+    const h = p.points()[1];
     if (this.drag && this.drag.p !== p) this.lift();
     let d = this.drag;
     if (d && (d.y + dir * wheelStep < 1 || d.y + dir * wheelStep > h - 1)) {

@@ -114,6 +114,37 @@ export function roundedOutline(
   return img;
 }
 
+// capsule draws an anti-aliased line with round ends from (ax, ay) to
+// (bx, by), thick pixels wide, over an RGBA image of w by h pixels, keeping
+// whichever coverage is greater where it crosses what is there.
+export function capsule(
+  img: Uint8Array, w: number, h: number, ax: number, ay: number, bx: number, by: number,
+  thick: number, color: [number, number, number],
+): void {
+  const r = thick / 2;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - 1));
+  const x1 = Math.min(w, Math.ceil(Math.max(ax, bx) + r + 1));
+  const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r - 1));
+  const y1 = Math.min(h, Math.ceil(Math.max(ay, by) + r + 1));
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const px = x + 0.5 - ax;
+      const py = y + 0.5 - ay;
+      const t = Math.min(Math.max((px * dx + py * dy) / len2, 0), 1);
+      const a = Math.min(Math.max(r + 0.5 - Math.hypot(px - t * dx, py - t * dy), 0), 1) * 255;
+      const i = (y * w + x) * 4;
+      if (a <= img[i + 3]) continue;
+      img[i] = color[0];
+      img[i + 1] = color[1];
+      img[i + 2] = color[2];
+      img[i + 3] = a;
+    }
+  }
+}
+
 // rgbOf reads the colour out of SGR parameters such as "38;2;10;132;255".
 export function rgbOf(params: string): [number, number, number] {
   const parts = params.split(";");

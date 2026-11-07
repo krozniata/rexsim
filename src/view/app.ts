@@ -471,6 +471,9 @@ export class App {
       case "ctrl+s":
         await sendScreenshot(this, p, c);
         break;
+      case "ctrl+r":
+        this.report(c.rotate());
+        break;
       case "":
         this.report(c.text(k.rune));
         break;

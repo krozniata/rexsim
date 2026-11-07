@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cornerMask, toRGB } from "../src/view/frames";
+import { cornerMask, toRGB, turn } from "../src/view/frames";
 
 test("toRGB drops alpha and swaps BGRA channels", () => {
   const rgb = toRGB(new Uint8Array([30, 20, 10, 0, 60, 50, 40, 0]), 2, 1, 8, new Uint8Array(0), 0, [0, 0, 0]);
@@ -39,4 +39,17 @@ test("toRGB packs any width and padded rows the same as byte by byte", () => {
       }
     }
   }
+});
+
+test("turn rotates pixels clockwise by quarter turns, dropping row padding", () => {
+  // 3 by 2 pixels, each one byte repeated four times, in rows padded to 16 bytes.
+  const rows = [[1, 2, 3], [4, 5, 6]];
+  const pix = new Uint8Array(32);
+  rows.forEach((row, y) => row.forEach((v, x) => pix.fill(v, y * 16 + x * 4, y * 16 + x * 4 + 4)));
+  const firsts = (t: { pix: Uint8Array }) => [...t.pix].filter((_, i) => i % 4 === 0);
+  expect(firsts(turn(pix, 3, 2, 16, 0))).toEqual([1, 2, 3, 4, 5, 6]);
+  expect(turn(pix, 3, 2, 16, 1)).toMatchObject({ width: 2, height: 3 });
+  expect(firsts(turn(pix, 3, 2, 16, 1))).toEqual([4, 1, 5, 2, 6, 3]);
+  expect(firsts(turn(pix, 3, 2, 16, 2))).toEqual([6, 5, 4, 3, 2, 1]);
+  expect(firsts(turn(pix, 3, 2, 16, 3))).toEqual([3, 6, 2, 5, 1, 4]);
 });

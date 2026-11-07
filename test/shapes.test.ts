@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { blur, inCanvas, thumbnail } from "../src/view/shapes";
+import { blur, capsule, inCanvas, thumbnail } from "../src/view/shapes";
 
 test("inCanvas draws an image at an offset and fills around it", () => {
   const img = { pix: new Uint8Array(2 * 2 * 3).fill(9), format: 24, width: 2, height: 2 };
@@ -24,4 +24,15 @@ test("blur spreads a bright pixel and keeps flat areas flat", () => {
   expect(out[(2 * 5 + 2) * 3]).toBeLessThan(250);
   expect(out[(2 * 5 + 3) * 3]).toBeGreaterThan(50);
   expect(out[0]).toBe(50);
+});
+
+test("capsule covers its line and round ends, and leaves the rest clear", () => {
+  const w = 20, h = 10;
+  const img = new Uint8Array(w * h * 4);
+  capsule(img, w, h, 5, 5, 15, 5, 4, [1, 2, 3]);
+  const alpha = (x: number, y: number) => img[(y * w + x) * 4 + 3];
+  expect([...img.subarray((5 * w + 10) * 4, (5 * w + 10) * 4 + 4)]).toEqual([1, 2, 3, 255]);
+  expect(alpha(4, 5)).toBe(255);
+  expect(alpha(10, 0)).toBe(0);
+  expect(alpha(0, 5)).toBe(0);
 });

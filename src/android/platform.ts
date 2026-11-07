@@ -1,5 +1,5 @@
 // Android emulators, which their own gRPC service streams and drives.
-import type { Device, Frame, Provider, Screen, Session } from "../device";
+import { type Device, type Frame, type Provider, type Screen, type Session, unturn } from "../device";
 import type { Message } from "../grpc";
 import { KeyLeftShift, keysFor } from "../keys";
 import * as avd from "./avd";
@@ -28,6 +28,7 @@ async function connect(signal: AbortSignal, d: Device): Promise<Session> {
 // pixels that the emulator's touches take.
 export class Emulator implements Session {
   private scale: number;
+  private turns = 0;
 
   constructor(
     private client: Client,
@@ -40,15 +41,32 @@ export class Emulator implements Session {
 
   stream(signal: AbortSignal, _fps: number, scale: number, onFrame: (f: Frame) => void): Promise<Error> {
     const side = Math.max(1, Math.round(Math.max(this.screen.width, this.screen.height) * scale));
-    return this.client.stream(signal, side, onFrame);
+    return this.client.stream(signal, side, (f, turns) => {
+      this.turns = turns;
+      onFrame(f);
+    });
   }
 
   touch(x: number, y: number, down: boolean): Promise<void> {
     return this.client.send("sendTouch", [this.touchEvent(x, y, down)]);
   }
 
+  // touchEvent counts pixels from the top left of the portrait panel, as the
+  // emulator does however it is held, while its frames turn.
   private touchEvent(x: number, y: number, down: boolean): Message {
-    return { touches: [{ x: Math.round(x * this.scale), y: Math.round(y * this.scale), identifier: 0, pressure: down ? 1 : 0 }] };
+    const { width: w, height: h } = this.screen;
+    const [px, py] = unturn(x * this.scale, y * this.scale, this.turns, w, h);
+    const [tx, ty] = [Math.min(Math.round(px), w - 1), Math.min(Math.round(py), h - 1)];
+    return { touches: [{ x: tx, y: ty, identifier: 0, pressure: down ? 1 : 0 }] };
+  }
+
+  // top follows the way the emulator is held, since its frames turn with it.
+  get top(): number {
+    return this.turns;
+  }
+
+  async rotate(): Promise<void> {
+    await this.client.setTurns((await this.client.turns()) + 1);
   }
 
   home(): Promise<void> {

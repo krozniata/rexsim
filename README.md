@@ -48,6 +48,7 @@ for Claude Code, and to `~/.agents/skills/rexsim` for Codex, OpenCode and Pi.
 | --- | --- |
 | ⌃B | Home |
 | Esc | Back, on Android |
+| ⌃R | Rotate clockwise |
 | ⌃S | Screenshot to the agent |
 | ⌃F | Focus one device |
 | ⌃N | Next device |

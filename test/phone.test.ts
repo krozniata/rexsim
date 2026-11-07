@@ -27,7 +27,7 @@ test("an emulator streams at the size it is drawn, up to full size", () => {
   expect(phone("android", 1080, 2400, 2400).wantScale()).toBe(1);
 });
 
-type Feed = (pix: Uint8Array, channels?: 3 | 4) => void;
+type Feed = (pix: Uint8Array, channels?: 3 | 4, turn?: number) => void;
 
 // streaming gives a phone a fake session whose stream the test feeds frames
 // into, as a device would.
@@ -44,7 +44,7 @@ function streaming(platform: Platform, width: number, height: number, fps: numbe
   const p = new Phone({ id: "x", name: "x", runtime: "", booted: true, platform });
   p.state = { kind: "ready", session };
   p.startStream(new AbortController().signal, fps, () => {}, () => {});
-  const feed: Feed = (pix, channels = 4) => onFrame!({ width, height, stride: width * channels, channels, pix });
+  const feed: Feed = (pix, channels = 4, turn) => onFrame!({ width, height, stride: width * channels, channels, pix, turn });
   return { p, feed };
 }
 
@@ -106,4 +106,22 @@ test("a phone streaming at 10 fps hands over at most one frame per 100 ms, the n
   const seconds = (performance.now() - start) / 1000;
   expect(taken.length).toBeLessThanOrEqual(Math.ceil(seconds * 10) + 1);
   expect(taken.at(-1)).toBe(30);
+});
+
+
+test("a phone showing landscape takes touches and streams at its turned size", () => {
+  const p = phone("ios", 1206, 2622, 301);
+  p.current = { width: 1311, height: 603, pix: new Uint8Array(0) };
+  expect(p.sideways).toBe(true);
+  expect(p.points()).toEqual([874, 402]);
+  expect(p.wantScale()).toBe(0.25);
+});
+
+test("a frame that only turned is handed over again, turned", async () => {
+  const { p, feed } = streaming("ios", 40, 80, 60);
+  feed(bgra(40, 80, 7));
+  expect(await take(p)).not.toBeNull();
+  await Bun.sleep(20);
+  feed(bgra(40, 80, 7), 4, 3);
+  expect(await take(p)).toMatchObject({ width: 80, height: 40 });
 });

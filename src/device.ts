@@ -14,10 +14,21 @@ export type Screen = { width: number; height: number; widthPoints: number; heigh
 
 // Frame holds BGRA pixels from a simulator, or packed RGB ones, 3 bytes
 // each, from an emulator. Rows are stride bytes apart, because a
-// simulator's framebuffer pads each row.
-export type Frame = { width: number; height: number; stride: number; channels: 3 | 4; pix: Uint8Array };
+// simulator's framebuffer pads each row. A landscape frame has the screen's
+// sides swapped. turn is how many quarter turns clockwise show it the way
+// the device is held.
+export type Frame = { width: number; height: number; stride: number; channels: 3 | 4; pix: Uint8Array; turn?: number };
 
-// Session is a connected phone. Its methods take points.
+// Orientation is which way up the device is held: landscapeLeft has the
+// device's top on the left.
+export type Orientation = "portrait" | "landscapeRight" | "portraitUpsideDown" | "landscapeLeft";
+
+// clockwise lists the orientations a quarter turn clockwise apart, so an
+// orientation's index is how many quarter turns it is from portrait.
+export const clockwise: Orientation[] = ["portrait", "landscapeRight", "portraitUpsideDown", "landscapeLeft"];
+
+// Session is a connected phone. Its methods take points on the screen as
+// it shows upright, the way its frames are drawn.
 export interface Session {
   readonly os: string;
   readonly screen: Screen;
@@ -27,10 +38,15 @@ export interface Session {
   // warning says why the phone may stream poorly, such as an emulator that
   // renders on the CPU.
   readonly warning?: string;
+  // top is the side of the screen, as it shows, that the device's top edge
+  // is on, in quarter turns clockwise from the screen's top edge.
+  readonly top: number;
   // stream asks for fps frames a second, which an emulator ignores: it
   // sends one whenever the screen changes.
   stream(signal: AbortSignal, fps: number, scale: number, onFrame: (f: Frame) => void): Promise<Error>;
   touch(x: number, y: number, down: boolean): Promise<void>;
+  // rotate turns the device a quarter clockwise.
+  rotate(): Promise<void>;
   home(): Promise<void>;
   key(code: number, shift: boolean): Promise<void>;
   text(s: string): Promise<void>;
@@ -45,6 +61,21 @@ export interface Provider {
   // such as a download.
   connect(signal: AbortSignal, d: Device, progress: (text: string) => void): Promise<Session>;
   shutdown(d: Device): void;
+}
+
+// unturn maps a point on a picture turned turns quarters clockwise back
+// onto the w by h picture it was turned from.
+export function unturn(x: number, y: number, turns: number, w: number, h: number): [number, number] {
+  switch (turns & 3) {
+    case 1:
+      return [y, h - x];
+    case 2:
+      return [w - x, h - y];
+    case 3:
+      return [w - y, x];
+    default:
+      return [x, y];
+  }
 }
 
 export function label(d: Device): string {

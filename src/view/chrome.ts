@@ -3,8 +3,8 @@ import { cellHeight, cellWidth } from "../terminal/term";
 import type { App } from "./app";
 import { captionRows, gapCols } from "./layout";
 import type { Phone } from "./phone";
-import { screenRadius } from "./frames";
-import { roundedOutline, rgbOf } from "./shapes";
+import { cornerRadius } from "./frames";
+import { capsule, roundedOutline, rgbOf } from "./shapes";
 import { drawSidebar, panelCol } from "./sidebar";
 import { sgr } from "./theme";
 
@@ -81,10 +81,12 @@ function drawFrame(a: App, p: Phone): void {
 // outline sits a uniform gap outside the screen, and its radius is the
 // screen's plus that gap, so the corners stay concentric. It sits above the
 // frame, whose corners are filled in, and never overlaps the screen itself.
-// It is redrawn only when its look changes.
+// A pill on the outline marks the device's top, as an earpiece would. The
+// border is redrawn only when its look changes.
 function drawBorder(a: App, p: Phone, focused: boolean): void {
   const color = focused ? phoneAccent(a, p) : a.pal.frame;
-  const key = JSON.stringify(p.frame) + color;
+  const side = p.session?.top ?? 0;
+  const key = JSON.stringify(p.frame) + color + side;
   if (key === p.borderKey) return;
   p.borderKey = key;
 
@@ -101,12 +103,35 @@ function drawBorder(a: App, p: Phone, focused: boolean): void {
   const top = b.y - f.y - gap;
   const right = left + b.w + 2 * gap;
   const bottom = top + b.h + 2 * gap;
-  const r = screenRadius(p.aspect(), p.device.platform) * b.w + gap;
-  const img = { pix: roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color)), format: 32, width: w, height: h };
+  const r = cornerRadius(b.w, b.h, p.device.platform) + gap;
+  const pix = roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color));
+  drawEarpiece(pix, w, h, left, top, right, bottom, side, stroke, rgbOf(color));
+  const img = { pix, format: 32, width: w, height: h };
   try {
     p.border.draw(a.t, img, f.col, f.row, f.cols, rows, 1);
   } catch (err) {
     a.flash((err as Error).message);
+  }
+}
+
+// drawEarpiece draws the pill on the outline's edge at side, in quarter
+// turns clockwise from the top, a fifth as long as that edge and thick
+// enough to stand out from the line without reaching the screen.
+function drawEarpiece(
+  pix: Uint8Array, w: number, h: number, left: number, top: number, right: number, bottom: number,
+  side: number, stroke: number, color: [number, number, number],
+): void {
+  const thick = stroke * 2.5;
+  const cx = (left + right) / 2;
+  const cy = (top + bottom) / 2;
+  if (side % 2 === 0) {
+    const y = side === 0 ? top : bottom;
+    const half = (right - left) / 10;
+    capsule(pix, w, h, cx - half, y, cx + half, y, thick, color);
+  } else {
+    const x = side === 1 ? right : left;
+    const half = (bottom - top) / 10;
+    capsule(pix, w, h, x, cy - half, x, cy + half, thick, color);
   }
 }
 
@@ -125,7 +150,7 @@ type Hint = [key: string, label: string];
 // act on rexsim itself.
 function hintGroups(a: App): Hint[][] {
   if (a.sidebar) return [[["↑↓", "move"], ["space", "show or hide"], ["esc", "close"]]];
-  const device: Hint[] = [["⌃B", "home"], ["⌃S", "screenshot"]];
+  const device: Hint[] = [["⌃B", "home"], ["⌃R", "rotate"], ["⌃S", "screenshot"]];
   if (a.focus?.device.platform === "android") device.splice(1, 0, ["esc", "back"]);
   let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "devices"]];
   if (a.phones.length < 2) rexsim = rexsim.slice(2);

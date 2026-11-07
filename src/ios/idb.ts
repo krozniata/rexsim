@@ -1,14 +1,21 @@
 // A client for the parts of idb_companion's gRPC service that rexsim uses:
-// the raw framebuffer stream, HID input and screenshots.
+// the raw framebuffer stream, HID input, orientation and screenshots.
 import type * as grpcjs from "@grpc/grpc-js";
 import idbProto from "../../proto/idb.proto" with { type: "text" };
-import type { Frame, Screen } from "../device";
+import type { Frame, Orientation, Screen } from "../device";
 import * as grpc from "../grpc";
 import { KeyLeftShift, keysFor } from "../keys";
 
 const CompanionService = grpc.loadService(idbProto, "idb.CompanionService");
 
 type Hid = grpcjs.ClientWritableStream<grpc.Message>;
+
+const orientations: Record<string, Orientation> = {
+  PORTRAIT: "portrait",
+  PORTRAIT_UPSIDE_DOWN: "portraitUpsideDown",
+  LANDSCAPE_LEFT: "landscapeLeft",
+  LANDSCAPE_RIGHT: "landscapeRight",
+};
 
 export class Client {
   private svc: grpc.Service;
@@ -36,14 +43,33 @@ export class Client {
     return { name: d.name, osVersion: d.os_version, screen };
   }
 
+  // orientation returns which way up the device is held, or null while it
+  // lies flat.
+  async orientation(signal?: AbortSignal): Promise<Orientation | null> {
+    const res = await grpc.unary(this.svc, "get_orientation", {}, undefined, signal);
+    return orientations[res.orientation] ?? null;
+  }
+
+  async setOrientation(o: Orientation): Promise<void> {
+    const name = Object.keys(orientations).find((k) => orientations[k] === o);
+    await grpc.unary(this.svc, "set_orientation", { orientation: name });
+  }
+
   // stream sends raw frames to onFrame until signal aborts or the stream
   // fails, and resolves with the reason it stopped. The companion sends one
-  // frame per message.
+  // frame per message, at a steady rate even when nothing changes. Its
+  // first is stale, and portrait even while the app is landscape, so it is
+  // skipped.
   stream(signal: AbortSignal, fps: number, scale: number, s: Screen, onFrame: (f: Frame) => void): Promise<Error> {
     const call: grpcjs.ClientDuplexStream<grpc.Message, any> = this.svc.video_stream();
+    let first = true;
     const stopped = grpc.readStream(call, signal, "the simulator stopped streaming", (res) => {
       const data: Uint8Array | undefined = res.payload?.data;
       if (!data?.length) return;
+      if (first) {
+        first = false;
+        return;
+      }
       const size = frameSize(data.length, s, scale);
       if (!size) return new Error(`unexpected frame of ${data.length} bytes at scale ${scale.toFixed(2)}`);
       onFrame({ ...size, channels: 4, pix: data });
@@ -133,13 +159,17 @@ function keyEvents(code: number, shift: boolean): grpc.Message[] {
 // doesn't report them and rounds the scaled size its own way. The buffer pads
 // each row to an alignment, and can hold a few rows more than the image, as
 // at full scale on a 2622-pixel-tall screen, which arrives as 2624 rows.
+// Frames turn with the app, so a landscape one has the screen's sides
+// swapped. The likeliest alignment is tried for both shapes before the
+// next, because a landscape length can also pass for a portrait image with
+// rows padded less.
 export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix" | "channels"> | null {
-  for (const [dw, dh] of [
-    [s.width, s.height],
-    [s.height, s.width],
-  ]) {
-    for (const width of around(dw * scale)) {
-      for (const align of [64, 16, 32, 128, 256, 4]) {
+  for (const align of [64, 16, 32, 128, 256, 4]) {
+    for (const [dw, dh] of [
+      [s.width, s.height],
+      [s.height, s.width],
+    ]) {
+      for (const width of around(dw * scale)) {
         const stride = Math.trunc((width * 4 + align - 1) / align) * align;
         if (width <= 0 || n % stride !== 0) continue;
         const rows = n / stride;

@@ -14,6 +14,8 @@ package idb;
 
 service CompanionService {
   rpc describe(TargetDescriptionRequest) returns (TargetDescriptionResponse) {}
+  rpc get_orientation(GetOrientationRequest) returns (GetOrientationResponse) {}
+  rpc set_orientation(SetOrientationRequest) returns (SetOrientationResponse) {}
   rpc hid(stream HIDEvent) returns (HIDResponse) {}
   rpc screenshot(ScreenshotRequest) returns (ScreenshotResponse) {}
   rpc video_stream(stream VideoStreamRequest)
@@ -49,6 +51,27 @@ message TargetDescriptionRequest {
 message TargetDescriptionResponse {
   TargetDescription target_description = 1;
 }
+
+message GetOrientationRequest {}
+
+message GetOrientationResponse {
+  enum Orientation {
+    UNKNOWN = 0;
+    PORTRAIT = 1;
+    PORTRAIT_UPSIDE_DOWN = 2;
+    LANDSCAPE_LEFT = 3;
+    LANDSCAPE_RIGHT = 4;
+    FACE_UP = 5;
+    FACE_DOWN = 6;
+  }
+  Orientation orientation = 1;
+}
+
+message SetOrientationRequest {
+  HIDEvent.HIDOrientationType orientation = 1;
+}
+
+message SetOrientationResponse {}
 
 message HIDEvent {
   enum HIDDirection {
@@ -102,6 +125,13 @@ message HIDEvent {
 
   message HIDDelay {
     double duration = 1;
+  }
+
+  enum HIDOrientationType {
+    PORTRAIT = 0;
+    PORTRAIT_UPSIDE_DOWN = 1;
+    LANDSCAPE_LEFT = 2;
+    LANDSCAPE_RIGHT = 3;
   }
 
   oneof event {
