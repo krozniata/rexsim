@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import type { Platform, Session } from "../src/device";
+import type { Frame, Platform, Session } from "../src/device";
 import { maxPixels } from "../src/ios/platform";
 import { emptyBox } from "../src/view/layout";
-import { Phone } from "../src/view/phone";
+import { Phone, type ViewFrame } from "../src/view/phone";
 
 function phone(platform: Platform, width: number, height: number, drawnHeight: number): Phone {
   const p = new Phone({ id: "x", name: "x", runtime: "", booted: true, platform });
@@ -27,30 +27,83 @@ test("an emulator streams at the size it is drawn, up to full size", () => {
   expect(phone("android", 1080, 2400, 2400).wantScale()).toBe(1);
 });
 
-test("conversion alternates two buffers and never writes the one on screen", () => {
-  const p = phone("android", 4, 8, 8);
-  const frame = (v: number) => ({ width: 4, height: 8, stride: 16, channels: 4 as const, bgra: false, pix: new Uint8Array(4 * 8 * 4).fill(v) });
-  const take = (v: number) => {
-    (p as any).latest = frame(v);
-    const f = p.takeLatest()!;
-    p.current = f;
-    return f;
-  };
-  const a = take(1);
-  const b = take(2);
-  expect(b.pix).not.toBe(a.pix);
-  expect(a.pix[0]).toBe(1);
-  const c = take(3);
-  expect(c.pix).toBe(a.pix);
-  expect(b.pix[0]).toBe(2);
+type Feed = (pix: Uint8Array, channels?: 3 | 4) => void;
+
+// streaming gives a phone a fake session whose stream the test feeds frames
+// into, as a device would.
+function streaming(platform: Platform, width: number, height: number, fps: number): { p: Phone; feed: Feed } {
+  let onFrame: ((f: Frame) => void) | undefined;
+  const screen = { width, height, widthPoints: width / 3, heightPoints: height / 3 };
+  const session = {
+    screen,
+    stream: (_signal: AbortSignal, _fps: number, _scale: number, f: (f: Frame) => void) => {
+      onFrame = f;
+      return new Promise<Error>(() => {});
+    },
+  } as unknown as Session;
+  const p = new Phone({ id: "x", name: "x", runtime: "", booted: true, platform });
+  p.state = { kind: "ready", session };
+  p.startStream(new AbortController().signal, fps, () => {}, () => {});
+  const feed: Feed = (pix, channels = 4) => onFrame!({ width, height, stride: width * channels, channels, bgra: true, pix });
+  return { p, feed };
+}
+
+const bgra = (w: number, h: number, v: number) => new Uint8Array(w * h * 4).fill(v);
+const middle = (pix: Uint8Array, w: number, h: number) => pix[((h >> 1) * w + (w >> 1)) * 3];
+
+async function take(p: Phone): Promise<ViewFrame | null> {
+  await p.frameDue(200);
+  return p.takeLatest([10, 20, 30]);
+}
+
+test("a newer frame never overwrites the one on screen", async () => {
+  const { p, feed } = streaming("ios", 40, 80, 60);
+  feed(bgra(40, 80, 1));
+  p.current = await take(p);
+  for (const v of [2, 3, 4]) {
+    const shown = p.current!;
+    await Bun.sleep(20);
+    feed(bgra(40, 80, v));
+    const next = (await take(p))!;
+    expect(middle(shown.pix, 40, 80)).toBe(v - 1);
+    expect(middle(next.pix, 40, 80)).toBe(v);
+    p.current = next;
+  }
 });
 
-test("an RGB frame with a known background has its corners filled in place", () => {
-  const p = phone("android", 400, 800, 800);
-  const pix = new Uint8Array(400 * 800 * 3).fill(200);
-  (p as any).latest = { width: 400, height: 800, stride: 1200, channels: 3, bgra: false, pix };
-  const f = p.takeLatest([10, 20, 30])!;
-  expect(f.format).toBe(24);
-  expect(f.pix).toBe(pix);
-  expect([...pix.subarray(0, 3)]).toEqual([10, 20, 30]);
+test("frames come out as RGB with their corners in the pane's colour", async () => {
+  for (const channels of [3, 4] as const) {
+    const { p, feed } = streaming("android", 400, 800, 60);
+    feed(new Uint8Array(400 * 800 * channels).fill(200), channels);
+    const f = (await take(p))!;
+    expect(f.pix.length).toBe(400 * 800 * 3);
+    expect([...f.pix.subarray(0, 3)]).toEqual([10, 20, 30]);
+    expect(middle(f.pix, 400, 800)).toBe(200);
+  }
+});
+
+test("a repeated frame isn't handed over again", async () => {
+  const { p, feed } = streaming("ios", 40, 80, 60);
+  feed(bgra(40, 80, 7));
+  expect(await take(p)).not.toBeNull();
+  await Bun.sleep(20);
+  feed(bgra(40, 80, 7));
+  expect(await take(p)).toBeNull();
+});
+
+test("a phone streaming at 10 fps hands over at most one frame per 100 ms, the newest", async () => {
+  const { p, feed } = streaming("android", 40, 80, 10);
+  const taken: number[] = [];
+  const start = performance.now();
+  for (let v = 1; v <= 30; v++) {
+    feed(bgra(40, 80, v));
+    const f = p.takeLatest([0, 0, 0]);
+    if (f) taken.push(middle(f.pix, 40, 80));
+    await Bun.sleep(10);
+  }
+  const f = await take(p);
+  if (f) taken.push(middle(f.pix, 40, 80));
+  const seconds = (performance.now() - start) / 1000;
+  expect(taken.length).toBeLessThanOrEqual(Math.ceil(seconds * 10) + 1);
+  expect(taken.at(-1)).toBe(30);
 });

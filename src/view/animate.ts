@@ -36,7 +36,7 @@ export async function animate(a: App, change: () => void): Promise<void> {
   for (const p of a.visible()) {
     if (before.has(p) && p.box.cols > 0 && p.current) {
       movers.push(p);
-      thumbs.set(p, thumbnail(p.current.pix, p.current.format, p.current.width, p.current.height, animThumbHeight));
+      thumbs.set(p, thumbnail(p.current.pix, p.current.width, p.current.height, animThumbHeight));
     }
   }
   if (movers.length === 0 && panelFrom === panelTo) {
@@ -84,7 +84,7 @@ export async function animate(a: App, change: () => void): Promise<void> {
 
 // step places img, the copy of a phone, a fraction t of the way from box
 // from to box to, keeping its shape.
-function step(img: Image, from: Box, to: Box, t: number, cw: number, ch: number, fill: RGB | null) {
+function step(img: Image, from: Box, to: Box, t: number, cw: number, ch: number, fill: RGB) {
   const lerp = (a: number, b: number) => a + (b - a) * t;
   const h = lerp(from.h, to.h);
   const w = (h * img.width) / img.height;

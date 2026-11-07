@@ -65,6 +65,7 @@ export async function run(opts: Options): Promise<void> {
   if (err && !(err instanceof Quit) && !a.signal.aborted) await a.fatal(err);
   a.stopTimers();
   await Promise.all(a.phones.map((p) => p.close()));
+  kitty.removeTemps();
   t.close();
   if (err instanceof Quit || a.signal.aborted) return;
   if (err) throw err;
@@ -78,8 +79,8 @@ export class App {
 
   pal: Palette = dark;
   // background is the pane's colour, which fills a frame's corners so it
-  // can be sent without an alpha channel.
-  background: RGB | null = null;
+  // can be sent without an alpha channel: black until the terminal says.
+  background: RGB = [0, 0, 0];
   phones: Phone[] = [];
   focus: Phone | null = null;
   solo = false;
@@ -126,7 +127,6 @@ export class App {
         case "ready":
           this.readyQueued = false;
           for (const p of this.phones) {
-            if (this.holdFrame(p)) continue;
             const f = p.takeLatest(this.background);
             if (f) this.paint(p, f);
           }
@@ -279,8 +279,10 @@ export class App {
       const ev = await this.events.next(deadline - Date.now());
       if (!ev || ev.kind === "quit") return;
       if (ev.kind === "osc" && ev.text.startsWith("11;")) {
-        this.background = colorOf(ev.text.slice(3));
-        if (this.background && luminance(this.background) > 0.5) this.pal = light;
+        const c = colorOf(ev.text.slice(3));
+        if (!c) return;
+        this.background = c;
+        if (luminance(c) > 0.5) this.pal = light;
         return;
       }
     }
@@ -311,10 +313,9 @@ export class App {
   // paint places a phone's frame. Each placement writes its own file, because
   // the terminal deletes a file once it has read it.
   paint(p: Phone, f: ViewFrame): void {
+    const resized = p.current?.width !== f.width || p.current?.height !== f.height;
     p.current = f;
-    if (f.width !== p.frameW || f.height !== p.frameH) {
-      p.frameW = f.width;
-      p.frameH = f.height;
+    if (resized) {
       this.relayout();
       return;
     }
@@ -327,8 +328,7 @@ export class App {
       return;
     }
     this.beginSync();
-    p.lastPaint = performance.now();
-    p.placer.place(this.t, path, f.format, f.width, f.height, p.box.col, p.box.row, p.box.cols, p.box.rows, 0);
+    p.placer.place(this.t, path, 24, f.width, f.height, p.box.col, p.box.row, p.box.cols, p.box.rows, 0);
     this.endSync();
     this.drawn++;
   }
@@ -401,20 +401,6 @@ export class App {
 
   private stream(p: Phone, fps: number): void {
     p.startStream(this.signal, fps, () => this.queueReady(), (err) => this.events.push({ kind: "failure", p, err }));
-  }
-
-  // holdFrame keeps a phone's new frame back while it streams below the
-  // pane's rate, as a thumbnail does, and paints it once its turn comes. A
-  // simulator sends at the rate asked; an emulator sends every change.
-  private holdFrame(p: Phone): boolean {
-    if (p.fps >= this.opts.fps || !p.hasLatest()) return false;
-    const wait = 1000 / p.fps - (performance.now() - p.lastPaint);
-    if (wait <= 0) return false;
-    p.paintTimer ??= setTimeout(() => {
-      p.paintTimer = undefined;
-      this.queueReady();
-    }, wait);
-    return true;
   }
 
   private queueReady(): void {
@@ -562,8 +548,7 @@ export class App {
     if (p.session && big > 0) {
       p.scale = p.wantScale(big);
       this.stream(p, this.opts.fps);
-      const deadline = performance.now() + fetchTimeout;
-      while (!p.hasLatest() && performance.now() < deadline) await Bun.sleep(5);
+      await p.frameDue(fetchTimeout);
       const f = p.takeLatest(this.background);
       if (f) p.current = f;
     }

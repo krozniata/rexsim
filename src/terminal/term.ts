@@ -42,9 +42,9 @@ export class Terminal {
     this.buf.push(s);
   }
 
-  // flush writes synchronously, as Go's blocking writes do, so output keeps
-  // its order with the image files it names. A tty that is busy reports
-  // EAGAIN; the rest is retried after a millisecond rather than in a spin.
+  // flush writes synchronously, so output keeps its order with the image
+  // files it names. A tty that is busy reports EAGAIN; the rest is retried
+  // after a millisecond rather than in a spin.
   flush(): void {
     if (this.buf.length === 0) return;
     let data = Buffer.from(this.buf.join(""));

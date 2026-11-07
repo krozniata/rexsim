@@ -1,6 +1,5 @@
-// Queue hands events to one consumer in order. It stands in for Go's select
-// over channels: whatever arrives while the consumer is busy, such as during
-// an animation, waits its turn.
+// Queue hands events to one consumer in order. Whatever arrives while the
+// consumer is busy, such as during an animation, waits its turn.
 export class Queue<T> {
   private items: T[] = [];
   private waiter: ((v: T | undefined) => void) | null = null;

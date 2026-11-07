@@ -73,9 +73,6 @@ export function computeLayout(s: Size, aspects: number[]): Placement[] | null {
     }
     totalH += heights[row];
   }
-  const cells = (col: number, row: number, cols: number, rows: number): Box => ({
-    col, row, cols, rows, x: col * cw, y: row * ch, w: cols * cw, h: rows * ch,
-  });
   const out: Placement[] = new Array(n);
   let y = 2 + Math.max(0, div(availRows - totalH, 2));
   heights.forEach((height, row) => {
@@ -88,8 +85,8 @@ export function computeLayout(s: Size, aspects: number[]): Placement[] | null {
       const sz = sizes[i];
       const top = y + div(height - (sz.rows + 2 + captionRows), 2);
       out[i] = {
-        frame: cells(x, top, sz.cols + 2, sz.rows + 2 + captionRows),
-        box: cells(x + 1, top + 1, sz.cols, sz.rows),
+        frame: cellBox(s, x, top, sz.cols + 2, sz.rows + 2 + captionRows),
+        box: cellBox(s, x + 1, top + 1, sz.cols, sz.rows),
       };
       x += sz.cols + 2 + gapCols;
     }

@@ -3,7 +3,8 @@ import { cellHeight, cellWidth } from "../terminal/term";
 import type { App } from "./app";
 import { captionRows, gapCols } from "./layout";
 import type { Phone } from "./phone";
-import { roundedOutline, rgbOf, screenRadius } from "./shapes";
+import { screenRadius } from "./frames";
+import { roundedOutline, rgbOf } from "./shapes";
 import { drawSidebar, panelCol } from "./sidebar";
 import { sgr } from "./theme";
 

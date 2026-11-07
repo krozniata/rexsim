@@ -2,12 +2,12 @@ import type { Device, Frame, Screen, Session } from "../device";
 import { connect } from "../platforms";
 import { Placer, Sprites } from "../terminal/kitty";
 import { emptyBox, type Box } from "./layout";
+import { cornerMask, fillCorners, screenRadius, toRGB } from "./frames";
 import type { RGB } from "./theme";
-import { cornerMask, fillCorners, rgbToRGBA, screenRadius, toRGB, toRGBA } from "./shapes";
 
-// ViewFrame is one screen with rounded corners: RGB (24) with the corners
-// filled in, or RGBA (32) with them transparent.
-export type ViewFrame = { width: number; height: number; format: 24 | 32; pix: Uint8Array };
+// ViewFrame is one screen as packed RGB, its corners rounded into the pane's
+// background.
+export type ViewFrame = { width: number; height: number; pix: Uint8Array };
 
 // PhoneState is where a phone's connection stands. A phone whose stream
 // failed keeps its session until it closes.
@@ -28,15 +28,15 @@ export class Phone {
   private buffers: Uint8Array<ArrayBuffer>[] = [];
   private corners: { r: number; mask: Uint8Array } = { r: -1, mask: new Uint8Array(0) };
   private stopStream: AbortController | null = null;
+  private due = false;
+  private dueTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastTake = 0;
+  private onDue: (() => void) | null = null;
   scale = 0;
   fps = 0;
-  lastPaint = 0;
-  paintTimer: ReturnType<typeof setTimeout> | undefined;
 
   placer = new Placer();
   current: ViewFrame | null = null;
-  frameW = 0;
-  frameH = 0;
   frame: Box = emptyBox;
   box: Box = emptyBox;
   border = new Sprites();
@@ -76,12 +76,13 @@ export class Phone {
   async close(): Promise<void> {
     this.latest = null;
     this.stopStream?.abort();
+    clearTimeout(this.dueTimer);
     if (this.state.kind === "connecting") this.state.cancel.abort();
     else await this.state.session?.close();
-    this.placer.close();
-    this.border.close();
   }
 
+  // startStream streams at fps frames a second and calls ready whenever a
+  // frame is due.
   startStream(signal: AbortSignal, fps: number, ready: () => void, failed: (err: Error) => void): void {
     const session = this.session;
     if (!session) return;
@@ -105,50 +106,67 @@ export class Phone {
   }
 
   // onFrame only keeps the newest raw frame. Everything runs on one thread,
-  // unlike Go's goroutine per stream, so the conversion waits for takeLatest
-  // and is skipped for frames that a newer one replaces before they're drawn.
-  // A companion sends frames at a steady rate even when nothing changes,
-  // and an emulator repeats some, so identical ones are dropped.
+  // so the conversion waits for takeLatest and is skipped for frames that a
+  // newer one replaces before they're drawn. A companion sends frames at a
+  // steady rate even when nothing changes, and an emulator repeats some, so
+  // identical ones are dropped. A frame is due at most fps times a second,
+  // since an emulator sends every change whatever rate it is asked for.
   private onFrame(f: Frame, ready: () => void): void {
     const sum = Bun.hash(f.pix);
     const same = sum === this.lastSum;
     this.lastSum = sum;
     if (same) return;
     this.latest = f;
-    ready();
+    if (this.due || this.dueTimer) return;
+    const fire = () => {
+      this.dueTimer = undefined;
+      this.due = true;
+      ready();
+      this.onDue?.();
+    };
+    const wait = 1000 / this.fps - (performance.now() - this.lastTake);
+    if (wait <= 0) fire();
+    else this.dueTimer = setTimeout(fire, wait);
   }
 
-  // takeLatest converts into whichever of two buffers current doesn't hold,
-  // rather than a new one per frame, whose garbage collection stalls the
-  // loop now and then. Given the pane's colour, it fills the corners with it
-  // and drops the alpha channel, since Rex shows opaque RGB frames more
-  // smoothly than RGBA ones of the same size. An RGB frame, which nothing
-  // else holds, has its corners filled in place instead.
-  hasLatest(): boolean {
-    return this.latest !== null;
+  // frameDue resolves once a frame is due, or after timeout milliseconds.
+  frameDue(timeout: number): Promise<void> {
+    if (this.due) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(done, timeout);
+      function done() {
+        clearTimeout(timer);
+        resolve();
+      }
+      this.onDue = () => {
+        this.onDue = null;
+        done();
+      };
+    });
   }
 
-  takeLatest(background: RGB | null = null): ViewFrame | null {
+  // takeLatest hands over the frame that is due, converted to RGB with its
+  // corners filled with background. A simulator's frame converts into
+  // whichever of two buffers current doesn't hold, rather than a new one
+  // per frame, whose garbage collection stalls the loop now and then. An
+  // emulator's frame is RGB already, and nothing else holds it, so its
+  // corners are filled in place.
+  takeLatest(background: RGB): ViewFrame | null {
     const f = this.latest;
-    if (!f) return null;
+    if (!f || !this.due) return null;
     this.latest = null;
+    this.due = false;
+    this.lastTake = performance.now();
     const r = Math.trunc(screenRadius(f.width / f.height, this.device.platform) * f.width);
     if (r !== this.corners.r) this.corners = { r, mask: cornerMask(r) };
-    if (f.channels === 3 && background) {
+    if (f.channels === 3) {
       fillCorners(f.pix, f.width, f.height, this.corners.mask, r, background);
-      return { width: f.width, height: f.height, format: 24, pix: f.pix };
+      return { width: f.width, height: f.height, pix: f.pix };
     }
     const spare = this.buffers.find((b) => b !== this.current?.pix);
-    if (f.channels === 3) {
-      const pix = rgbToRGBA(f.pix, f.width, f.height, this.corners.mask, r, spare);
-      if (pix !== spare) this.buffers = [pix, ...this.buffers.filter((b) => b === this.current?.pix)];
-      return { width: f.width, height: f.height, format: 32, pix };
-    }
-    const pix = background
-      ? toRGB(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra, background, spare)
-      : toRGBA(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra, spare);
+    const pix = toRGB(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra, background, spare);
     if (pix !== spare) this.buffers = [pix, ...this.buffers.filter((b) => b === this.current?.pix)];
-    return { width: f.width, height: f.height, format: background ? 24 : 32, pix };
+    return { width: f.width, height: f.height, pix };
   }
 
   // aspect is the phone's width over its height: the frame's once one
@@ -156,7 +174,7 @@ export class Phone {
   // Layout uses only the ratio, because a frame's pixel size depends on the
   // stream's scale, which in turn follows the drawn size.
   aspect(): number {
-    if (this.frameW > 0 && this.frameH > 0) return this.frameW / this.frameH;
+    if (this.current) return this.current.width / this.current.height;
     if (this.screen.width > 0 && this.screen.height > 0) return this.screen.width / this.screen.height;
     return this.device.name.includes("iPad") ? 0.72 : 0.46;
   }

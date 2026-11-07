@@ -1,8 +1,9 @@
-// Times the per-frame work the way internal/view/frame_bench_test.go does.
+// Times the per-frame work: dropping repeated frames, converting to RGB and
+// writing the file that the terminal reads.
 import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cornerMask, screenRadius, toRGBA } from "./view/shapes";
+import { cornerMask, screenRadius, toRGB } from "./view/frames";
 
 function time(name: string, fn: () => void): void {
   for (let i = 0; i < 20; i++) fn();
@@ -21,14 +22,13 @@ function bench(label: string, w: number, h: number): void {
   const misaligned = Buffer.alloc(stride * h + 3).subarray(3);
   const r = Math.trunc(screenRadius(w / h) * w);
   const mask = cornerMask(r);
-  let rgba = new Uint8Array(0);
+  const out = new Uint8Array(w * h * 3);
   time(`${label}/hash`, () => Bun.hash(aligned));
-  time(`${label}/crc32`, () => Bun.hash.crc32(aligned));
-  time(`${label}/toRGBA`, () => (rgba = toRGBA(aligned, w, h, stride, mask, r)));
-  time(`${label}/toRGBA-misaligned`, () => (rgba = toRGBA(misaligned, w, h, stride, mask, r)));
+  time(`${label}/toRGB`, () => toRGB(aligned, w, h, stride, mask, r, true, [0, 0, 0], out));
+  time(`${label}/toRGB-misaligned`, () => toRGB(misaligned, w, h, stride, mask, r, true, [0, 0, 0], out));
   const path = join(tmpdir(), "rexsim-bench");
   time(`${label}/tempfile`, () => {
-    writeFileSync(path, rgba);
+    writeFileSync(path, out);
     unlinkSync(path);
   });
 }

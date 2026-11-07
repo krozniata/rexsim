@@ -115,7 +115,7 @@ function readFile(path: string): string {
   }
 }
 
-// lines splits s after each newline, keeping them, as Go's strings.Lines does.
+// lines splits s after each newline, keeping the newlines.
 function lines(s: string): string[] {
   return s.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 }
