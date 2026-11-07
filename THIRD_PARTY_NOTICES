@@ -5,7 +5,7 @@ idb
 https://github.com/facebook/idb
 
 proto/idb.proto is a subset of idb v1.7.8's proto/idb.proto, which
-src/idb.ts loads at runtime.
+src/ios/idb.ts loads at runtime.
 
 MIT License
 
@@ -34,8 +34,8 @@ Android Emulator
 https://android.googlesource.com/platform/external/qemu
 
 proto/emulator.proto is a subset of the Android emulator's
-emulator_controller.proto (emulator 36.5), which src/emulator.ts loads at
-runtime.
+emulator_controller.proto (emulator 36.5), which src/android/emulator.ts
+loads at runtime.
 
 Copyright (C) 2018 The Android Open Source Project
 

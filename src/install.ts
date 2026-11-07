@@ -29,7 +29,7 @@ function skillDirs(): string[] {
 export async function install(): Promise<void> {
   const bin = process.execPath;
   if (basename(bin) === "bun") {
-    throw new Error("compile rexsim first, as the README shows, then run rexsim install");
+    throw new Error("compile rexsim first, with bun build src/main.ts --compile, then run rexsim install");
   }
   const dir = configDir();
   mkdirSync(dir, { recursive: true });

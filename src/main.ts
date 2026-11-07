@@ -5,6 +5,10 @@ import { install, uninstall } from "./install";
 import { show } from "./show";
 import { run } from "./view/app";
 
+// The release workflow defines REXSIM_VERSION when it builds a release.
+declare const REXSIM_VERSION: string | undefined;
+const version = typeof REXSIM_VERSION === "string" ? REXSIM_VERSION : "dev";
+
 const usage = `usage: rexsim [flags] | rexsim show [DEVICE...] | rexsim install | rexsim uninstall
   show DEVICE   shows simulators or emulators, by name, UDID, AVD name or adb serial, in this Rex session's
                 rexsim pane, opening one beside this pane if needed. Without a DEVICE, it shows
@@ -12,7 +16,8 @@ const usage = `usage: rexsim [flags] | rexsim show [DEVICE...] | rexsim install 
   --udid ID     a device to show, as for show; repeat it or separate
                 them with commas to show several. Without it, rexsim asks unless one is booted
   --agent ID    the Rex block that ^S sends screenshots to; the Rex action sets it
-  --fps N       frames per second to stream (default 60)`;
+  --fps N       frames per second to stream (default 60)
+  --version     prints rexsim's version`;
 
 async function main(args: string[]): Promise<void> {
   if (args[0] === "install") return install();
@@ -25,10 +30,15 @@ async function main(args: string[]): Promise<void> {
       agent: { type: "string", default: "" },
       fps: { type: "string", default: "60" },
       help: { type: "boolean", short: "h" },
+      version: { type: "boolean" },
     },
   });
   if (values.help) {
     console.log(usage);
+    return;
+  }
+  if (values.version) {
+    console.log(`rexsim ${version}`);
     return;
   }
   const fps = Number(values.fps);

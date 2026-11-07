@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bunx tsc --noEmit -p .
+      - run: bun test
+      - name: Build
+        run: |
+          mkdir dist
+          bun build src/main.ts --compile --target=bun-darwin-arm64 --define "REXSIM_VERSION=\"${GITHUB_REF_NAME#v}\"" --outfile dist/rexsim
+          cp LICENSE THIRD_PARTY_NOTICES dist/
+          tar -czf rexsim-darwin-arm64.tar.gz -C dist rexsim LICENSE THIRD_PARTY_NOTICES
+          shasum -a 256 rexsim-darwin-arm64.tar.gz > rexsim-darwin-arm64.tar.gz.sha256
+      - name: Publish
+        run: gh release create "$GITHUB_REF_NAME" rexsim-darwin-arm64.tar.gz rexsim-darwin-arm64.tar.gz.sha256 --verify-tag --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
