@@ -1,22 +1,21 @@
-// Shows simulators in the terminal and sends the mouse and keyboard to them.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import * as companion from "../companion";
+// Shows simulators and emulators in the terminal and sends the mouse and
+// keyboard to them.
 import * as control from "../control";
-import { type Device, devices as listDevices, find, label, shutdown } from "../device";
-import { type InputEvent, type Key, type Mouse, readEvents } from "../input";
+import { type Device, label, resolve, type Session } from "../device";
 import * as keys from "../keys";
-import * as kitty from "../kitty";
-import { cellWidth, type Size, Terminal } from "../term";
+import { devices as listDevices, shutdown } from "../platforms";
+import { type InputEvent, type Key, readEvents } from "../terminal/input";
+import * as kitty from "../terminal/kitty";
+import { cellWidth, type Size, Terminal } from "../terminal/term";
 import { animate } from "./animate";
 import { drawChrome } from "./chrome";
-import { computeLayout, contains, emptyBox } from "./layout";
-import { closeConnection, type Connection, dial, Phone, type ViewFrame } from "./phone";
+import { computeLayout, emptyBox } from "./layout";
+import { closeConnection, type Connection, Phone, type ViewFrame } from "./phone";
 import { chooseDevices } from "./picker";
+import { Pointer } from "./pointer";
 import { Queue } from "./queue";
-import { markShutDown, panelCol, type Sidebar, sidebarKey, sidebarMouse, toggleSidebar } from "./sidebar";
+import { sendScreenshot } from "./screenshot";
+import { markShutDown, panelCol, type Sidebar, sidebarKey, toggleSidebar } from "./sidebar";
 import { dark, light, luminance, type Palette, sgr } from "./theme";
 
 export type Options = { ids: string[]; agent: string; fps: number };
@@ -37,9 +36,6 @@ export type AppEvent =
 
 const statusTime = 4000;
 const themeTimeout = 300;
-const moveInterval = 12;
-const wheelWindow = 100;
-const wheelStep = 30;
 
 const namedKeys: Record<string, number> = {
   enter: keys.KeyEnter, backspace: keys.KeyBackspace, tab: keys.KeyTab, esc: keys.KeyEscape,
@@ -82,19 +78,13 @@ export class App {
   phones: Phone[] = [];
   focus: Phone | null = null;
   solo = false;
-  private bin: Promise<string> | null = null;
   private added = 0;
   private syncs = 0;
   sidebar: Sidebar | null = null;
   private readyQueued = false;
   private tick: ReturnType<typeof setInterval> | undefined;
   private stopServing = () => {};
-
-  private wheelPhone: Phone | null = null;
-  private wheelDY = 0;
-  private wheelX = 0;
-  private wheelY = 0;
-  private wheelTimer: ReturnType<typeof setTimeout> | undefined;
+  private pointer = new Pointer(this);
 
   status = "";
   statusUntil = 0;
@@ -112,7 +102,7 @@ export class App {
     this.updateSize();
     this.t.enableInput();
     await this.detectTheme();
-    this.message("Looking for simulators…");
+    this.message("Looking for devices…");
     const devices = await chooseDevices(this);
     this.focus = this.add(devices)[0];
     this.updateSize();
@@ -151,7 +141,7 @@ export class App {
           else drawChrome(this);
           break;
         case "wheel":
-          this.flushWheel();
+          this.pointer.flushWheel();
           break;
         case "dialed":
           await this.dialDone(ev.c);
@@ -168,7 +158,7 @@ export class App {
 
   stopTimers(): void {
     clearInterval(this.tick);
-    clearTimeout(this.wheelTimer);
+    this.pointer.stop();
     this.stopServing();
   }
 
@@ -190,18 +180,14 @@ export class App {
   // A phone whose device stopped is replaced, since a test run may have
   // restarted it.
   private async show(keys: string[]): Promise<control.Reply> {
-    let all: Device[];
+    let wanted: Device[];
     try {
-      all = await listDevices(this.signal);
+      wanted = resolve(await listDevices(this.signal), keys);
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
-    const unknown = keys.filter((k) => !find(all, k));
-    if (unknown.length > 0) return { ok: false, error: `no simulator or emulator is called ${unknown.join(", ")}` };
-    const wanted = keys.length > 0 ? [...new Set(keys.map((k) => find(all, k)!))] : all.filter((d) => d.booted);
-    if (wanted.length === 0) return { ok: false, error: "no simulator or emulator is booted; name the ones to show" };
 
-    for (const p of this.phones.filter((p) => p.failed !== "" && wanted.some((d) => d.id === p.device.id))) {
+    for (const p of this.phones.filter((p) => p.state.kind === "failed" && wanted.some((d) => d.id === p.device.id))) {
       this.phones.splice(this.phones.indexOf(p), 1);
       void p.close();
     }
@@ -214,16 +200,6 @@ export class App {
     return { ok: true, message: added.length > 0 ? `showing ${names}` : `already showing ${names}` };
   }
 
-  // companionBin fetches idb_companion the first time a simulator needs it,
-  // and again after a failed download.
-  private companionBin(progress: (text: string) => void): Promise<string> {
-    this.bin ??= companion.binary(this.signal, progress).catch((err) => {
-      this.bin = null;
-      throw err;
-    });
-    return this.bin;
-  }
-
   // add shows a placeholder for each device at once and connects them in the
   // background, so the other phones stay usable while a device boots. Each
   // phone gets image ids no other phone has used, so a closed phone's images
@@ -231,13 +207,10 @@ export class App {
   add(devices: Device[]): Phone[] {
     const phones = devices.map((d) => {
       const p = new Phone(d);
-      p.cancelConnect = new AbortController();
       p.placer.base = this.added * 2;
       p.border.base = 1_000_000 + this.added * 2;
       this.added++;
-      dial(AbortSignal.any([this.signal, p.cancelConnect.signal]), () => this.companionBin((text) => this.flash(text)), p, d).then((c) =>
-        this.events.push({ kind: "dialed", c }),
-      );
+      p.connect(this.signal, (text) => this.flash(text)).then((c) => this.events.push({ kind: "dialed", c }));
       return p;
     });
     this.phones.push(...phones);
@@ -252,23 +225,16 @@ export class App {
       await closeConnection(c);
       return;
     }
-    p.connecting = false;
-    p.cancelConnect = null;
-    if (c.err) {
-      p.failed = c.err.message;
-    } else {
-      p.session = c.session!;
-      p.screen = c.session!.screen;
-    }
+    p.state = "session" in c ? { kind: "ready", session: c.session } : { kind: "failed", reason: c.err.message };
     this.relayout();
   }
 
   // streamFailed keeps the other phones running when one stops, for example
-  // because its simulator shut down.
+  // because its device shut down.
   private streamFailed(failed: Phone, err: Error): void {
-    failed.failed = err.message;
-    if (this.phones.some((p) => p.failed === "")) {
-      this.flash(`${failed.device.name}: ${failed.failed}`);
+    failed.fail(err.message);
+    if (this.phones.some((p) => p.state.kind !== "failed")) {
+      this.flash(`${failed.device.name}: ${err.message}`);
       return;
     }
     throw err;
@@ -410,7 +376,7 @@ export class App {
           continue;
         }
         const s = p.wantScale();
-        if (s !== p.scale && p.failed === "" && !p.connecting) {
+        if (s !== p.scale && p.session) {
           p.scale = s;
           p.startStream(this.signal, this.opts.fps, () => this.queueReady(), (err) => this.events.push({ kind: "failure", p, err }));
         }
@@ -458,11 +424,13 @@ export class App {
     switch (ev.kind) {
       case "key":
         return this.key(ev);
-      case "paste":
-        if (!this.sidebar && this.usable(this.focus!)) this.report(this.focus!.session!.text(ev.text));
+      case "paste": {
+        const s = this.sidebar ? null : this.usable(this.focus!);
+        if (s) this.report(s.text(ev.text));
         return;
+      }
       case "mouse":
-        return this.mouse(ev);
+        return this.pointer.mouse(ev);
     }
   }
 
@@ -485,8 +453,8 @@ export class App {
         break;
     }
     const p = this.focus!;
-    if (!this.usable(p)) return;
-    const c = p.session!;
+    const c = this.usable(p);
+    if (!c) return;
     switch (k.name) {
       case "ctrl+b":
         this.report(c.button("HOME"));
@@ -495,7 +463,7 @@ export class App {
         this.report(c.button("LOCK"));
         break;
       case "ctrl+s":
-        await this.sendScreenshot(p);
+        await sendScreenshot(this, p, c);
         break;
       case "":
         this.report(c.text(k.rune));
@@ -507,73 +475,12 @@ export class App {
     }
   }
 
-  private phoneAt(px: number, py: number): Phone | null {
-    return this.phones.find((p) => p.failed === "" && !p.connecting && contains(p.box, px, py)) ?? null;
-  }
-
-  private async mouse(m: Mouse): Promise<void> {
-    if (await sidebarMouse(this, m)) return;
-    if (m.button >= 64) {
-      if (m.button > 65 || m.release || m.motion) return;
-      const p = this.phoneAt(m.x, m.y);
-      if (!p) return;
-      if (p !== this.wheelPhone && this.wheelPhone) this.flushWheel();
-      this.wheelPhone = p;
-      this.wheelDY += m.button === 64 ? 1 : -1;
-      [this.wheelX, this.wheelY] = p.point(m.x, m.y);
-      this.wheelTimer ??= setTimeout(() => this.events.push({ kind: "wheel" }), wheelWindow);
-    } else if (m.button === 0 && !m.motion && !m.release) {
-      const p = this.phoneAt(m.x, m.y);
-      if (!p) {
-        for (const q of this.phones) if (contains(q.frame, m.x, m.y)) this.setFocus(q);
-        return;
-      }
-      this.setFocus(p);
-      p.touching = true;
-      p.lastMove = performance.now();
-      const [x, y] = p.point(m.x, m.y);
-      this.report(p.session!.touch(x, y, true));
-    } else if (m.motion && m.button === 0) {
-      for (const p of this.phones) {
-        if (p.touching && performance.now() - p.lastMove >= moveInterval) {
-          p.lastMove = performance.now();
-          const [x, y] = p.point(m.x, m.y);
-          this.report(p.session!.touch(x, y, true));
-        }
-      }
-    } else if (m.release) {
-      for (const p of this.phones) {
-        if (p.touching) {
-          p.touching = false;
-          const [x, y] = p.point(m.x, m.y);
-          this.report(p.session!.touch(x, y, false));
-        }
-      }
-    }
-  }
-
-  // flushWheel turns the wheel ticks of the last moment into one swipe
-  // centred on the pointer. Sending a swipe per tick would queue up faster
-  // than the phone plays them.
-  private flushWheel(): void {
-    clearTimeout(this.wheelTimer);
-    this.wheelTimer = undefined;
-    const p = this.wheelPhone;
-    const d = Math.min(Math.max(this.wheelDY * wheelStep, -400), 400);
-    this.wheelDY = 0;
-    if (!p || d === 0) return;
-    const h = p.screen.heightPoints;
-    const y0 = Math.min(Math.max(this.wheelY - d / 2, 1), h - 1);
-    const y1 = Math.min(Math.max(this.wheelY + d / 2, 1), h - 1);
-    this.report(p.session!.swipe(this.wheelX, y0, this.wheelX, y1, 0.08));
-  }
-
-  // usable reports whether a phone takes input yet, and says why not.
-  private usable(p: Phone): boolean {
-    if (p.connecting) this.flash(`${p.device.name} is still connecting`);
-    else if (p.failed !== "") this.flash(`${p.device.name}: ${p.failed}`);
-    else return true;
-    return false;
+  // usable returns a phone's session if it takes input yet, and says why
+  // not otherwise.
+  private usable(p: Phone): Session | null {
+    if (p.state.kind === "connecting") this.flash(`${p.device.name} is still connecting`);
+    else if (p.state.kind === "failed") this.flash(`${p.device.name}: ${p.state.reason}`);
+    return p.session;
   }
 
   // removePhone takes a phone out of the pane and shuts its device down.
@@ -611,53 +518,10 @@ export class App {
     else drawChrome(this);
   }
 
-  private setFocus(p: Phone): void {
+  setFocus(p: Phone): void {
     if (this.focus !== p) {
       this.focus = p;
       drawChrome(this);
     }
-  }
-
-  // sendScreenshot saves a full-resolution screenshot of a phone and types
-  // its path into the agent's pane, so the agent can look at the screen.
-  // Without an agent, it copies the path.
-  private async sendScreenshot(p: Phone): Promise<void> {
-    let path: string;
-    try {
-      const png = await p.session!.screenshot();
-      const dir = join(tmpdir(), "rexsim");
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const name = p.device.name.replace(/[ /]/g, "-");
-      const now = new Date();
-      const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, "0")).join("");
-      path = join(dir, `${name}-${time}-${randomBytes(4).toString("hex")}.png`);
-      writeFileSync(path, png, { flag: "wx", mode: 0o600 });
-    } catch (err) {
-      this.flash((err as Error).message);
-      return;
-    }
-    if (this.opts.agent && (await rexSend(this.opts.agent, path + " "))) {
-      this.flash(`Sent a screenshot of ${p.device.name} to the agent's input`);
-      return;
-    }
-    if (!(await spawnOK(["pbcopy"], new TextEncoder().encode(path)))) {
-      this.flash(`Saved ${path}`);
-      return;
-    }
-    this.flash(`Copied the screenshot's path: ${path}`);
-  }
-}
-
-function rexSend(block: string, text: string): Promise<boolean> {
-  return spawnOK(["rex", "send", "-s", process.env.REX_SESSION ?? "", "-b", block, text]);
-}
-
-// spawnOK reports whether a command ran and succeeded. Bun.spawn throws at
-// once when the program isn't on PATH, where Go's Run returned an error.
-async function spawnOK(cmd: string[], stdin?: Uint8Array): Promise<boolean> {
-  try {
-    return (await Bun.spawn(cmd, { stdin: stdin ?? "ignore", stdout: "ignore", stderr: "ignore" }).exited) === 0;
-  } catch {
-    return false;
   }
 }

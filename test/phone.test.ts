@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
-import type { Platform } from "../src/device";
+import type { Platform, Session } from "../src/device";
+import { maxPixels } from "../src/ios/platform";
 import { emptyBox } from "../src/view/layout";
 import { Phone } from "../src/view/phone";
 
 function phone(platform: Platform, width: number, height: number, drawnHeight: number): Phone {
   const p = new Phone({ id: "x", name: "x", runtime: "", booted: true, platform });
-  p.screen = { width, height, widthPoints: width / 3, heightPoints: height / 3 };
+  const screen = { width, height, widthPoints: width / 3, heightPoints: height / 3 };
+  const session = { screen, maxPixels: platform === "ios" ? maxPixels : undefined } as Session;
+  p.state = { kind: "ready", session };
   p.box = { ...emptyBox, h: drawnHeight };
   return p;
 }

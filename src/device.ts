@@ -1,10 +1,5 @@
 // What the view uses of a phone, whether an iOS simulator behind
 // idb_companion or an Android emulator over its own gRPC service.
-import * as avd from "./avd";
-import * as companion from "./companion";
-import * as emulator from "./emulator";
-import { Client as IdbClient } from "./idb";
-import * as sim from "./sim";
 
 export type Platform = "ios" | "android";
 
@@ -28,6 +23,11 @@ export type Button = "HOME" | "LOCK";
 export interface Session {
   readonly os: string;
   readonly screen: Screen;
+  // maxPixels is the largest frame the stream can send at full rate, when
+  // it has a limit.
+  readonly maxPixels?: number;
+  // stream asks for fps frames a second, which an emulator ignores: it
+  // sends one whenever the screen changes.
   stream(signal: AbortSignal, fps: number, scale: number, onFrame: (f: Frame) => void): Promise<Error>;
   touch(x: number, y: number, down: boolean): Promise<void>;
   button(b: Button): Promise<void>;
@@ -36,6 +36,15 @@ export interface Session {
   swipe(x0: number, y0: number, x1: number, y1: number, seconds: number): Promise<void>;
   screenshot(): Promise<Uint8Array>;
   close(): Promise<void>;
+}
+
+// Provider lists, connects and shuts down one platform's devices.
+export interface Provider {
+  devices(signal: AbortSignal): Promise<Device[]>;
+  // connect boots the device if needed. progress reports a slow first step,
+  // such as a download.
+  connect(signal: AbortSignal, d: Device, progress: (text: string) => void): Promise<Session>;
+  shutdown(d: Device): void;
 }
 
 export function label(d: Device): string {
@@ -52,63 +61,20 @@ export function find(devices: Device[], key: string): Device | undefined {
   return named.find((d) => d.booted) ?? named[0];
 }
 
-// devices lists the simulators and then the emulators, booted ones first in
-// each. Without Xcode it lists only the emulators, and the other way round.
-export async function devices(signal: AbortSignal): Promise<Device[]> {
-  const [ios, android] = await Promise.allSettled([sim.devices(signal), avd.devices()]);
-  if (ios.status === "rejected" && android.status === "rejected") throw ios.reason;
-  if (ios.status === "rejected" && android.status === "fulfilled" && android.value.length === 0) throw ios.reason;
-  return [...(ios.status === "fulfilled" ? ios.value : []), ...(android.status === "fulfilled" ? android.value : [])];
+// resolve finds the devices that keys name, once each, or every booted one
+// when keys is empty.
+export function resolve(devices: Device[], keys: string[]): Device[] {
+  const unknown = keys.filter((k) => !find(devices, k));
+  if (unknown.length > 0) throw new Error(`no simulator or emulator is called ${unknown.join(", ")}`);
+  const found = keys.length > 0 ? [...new Set(keys.map((k) => find(devices, k)!))] : devices.filter((d) => d.booted);
+  if (found.length === 0) throw new Error("no simulator or emulator is booted; name the ones to show");
+  return found;
 }
 
-// companionBin is only called for a simulator.
-export function connect(signal: AbortSignal, d: Device, companionBin: () => Promise<string>): Promise<Session> {
-  return d.platform === "ios" ? connectSimulator(signal, d, companionBin) : connectEmulator(signal, d);
-}
-
-export function shutdown(d: Device): void {
-  if (d.platform === "ios") sim.shutdown(d.id);
-  else void avd.shutdown(d.id).catch(() => {});
-}
-
-async function connectSimulator(signal: AbortSignal, d: Device, companionBin: () => Promise<string>): Promise<Session> {
-  const bin = await companionBin();
-  if (!d.booted) await sim.boot(signal, d.id);
-  const comp = await companion.start(signal, bin, d.id);
-  const client = new IdbClient(comp.socket);
-  const close = async () => {
-    client.close();
-    await comp.close();
-  };
-  try {
-    const desc = await client.describe(signal);
-    const screen = desc.screen;
-    return {
-      os: "iOS " + desc.osVersion.replace(/^iOS/, "").trim(),
-      screen,
-      stream: (signal, fps, scale, onFrame) => client.stream(signal, fps, scale, screen, onFrame),
-      touch: (x, y, down) => client.touch(x, y, down),
-      button: (b) => client.button(b),
-      key: (code, shift) => client.key(code, shift),
-      text: (s) => client.text(s),
-      swipe: (x0, y0, x1, y1, seconds) => client.swipe(x0, y0, x1, y1, seconds),
-      screenshot: () => client.screenshot(),
-      close,
-    };
-  } catch (err) {
-    await close();
-    throw err;
-  }
-}
-
-async function connectEmulator(signal: AbortSignal, d: Device): Promise<Session> {
-  const e = avd.running(d.id) ?? (await avd.boot(signal, d.id));
-  const client = new emulator.Client(e.port, e.token);
-  try {
-    const hw = await client.waitBooted(signal);
-    return new emulator.Emulator(client, d.runtime, avd.screenOf(hw));
-  } catch (err) {
-    client.close();
-    throw err;
-  }
+// compareDevices orders booted devices first, then by newer, which is
+// negative when a's version is newer than b's, then by name.
+export function compareDevices(a: Device, b: Device, newer: number): number {
+  if (a.booted !== b.booted) return a.booted ? -1 : 1;
+  if (newer !== 0) return newer;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }

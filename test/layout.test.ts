@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cellHeight, cellWidth, type Size } from "../src/term";
+import { cellHeight, cellWidth, type Size } from "../src/terminal/term";
 import { captionRows, computeLayout, footerRows, gapCols, type Placement } from "../src/view/layout";
 
 const iPhone = 1206 / 2622;

@@ -1,6 +1,7 @@
-import { type Device, devices as listDevices } from "../device";
-import type { Key, Mouse } from "../input";
-import { cellHeight, cellWidth } from "../term";
+import type { Device } from "../device";
+import { devices as listDevices } from "../platforms";
+import type { Key, Mouse } from "../terminal/input";
+import { cellHeight, cellWidth } from "../terminal/term";
 import { animate } from "./animate";
 import type { App } from "./app";
 import { clip, drawChrome, phoneAccent, platformAccent, width } from "./chrome";
@@ -22,7 +23,7 @@ export function panelCol(a: App): number {
   return a.sidebar ? Math.max(0, a.size.cols - sidebarCols) : a.size.cols;
 }
 
-// toggleSidebar slides the simulator list in from the right, or back out.
+// toggleSidebar slides the device list in from the right, or back out.
 export async function toggleSidebar(a: App): Promise<void> {
   if (a.sidebar) {
     await animate(a, () => {
@@ -46,9 +47,9 @@ function phoneFor(a: App, id: string): Phone | null {
   return a.phones.find((p) => p.device.id === id) ?? null;
 }
 
-// toggleDevice shows the selected simulator, booting it if needed, or hides
-// it and shuts it down, and slides the list away. Only one simulator starts
-// at a time.
+// toggleDevice shows the selected device, booting it if needed, or hides it
+// and shuts it down, and slides the list away. Only one device starts at a
+// time.
 async function toggleDevice(a: App): Promise<void> {
   const sb = a.sidebar!;
   if (sb.devices.length === 0) return;
@@ -56,7 +57,7 @@ async function toggleDevice(a: App): Promise<void> {
   const p = phoneFor(a, d.id);
   if (p) {
     if (a.phones.length === 1) {
-      a.flash("Keep one simulator open, or quit with ⌃]");
+      a.flash("Keep one device open, or quit with ⌃]");
       return;
     }
     await animate(a, () => {
@@ -65,7 +66,7 @@ async function toggleDevice(a: App): Promise<void> {
     });
     return;
   }
-  const starting = a.phones.find((q) => q.connecting);
+  const starting = a.phones.find((q) => q.state.kind === "connecting");
   if (starting) {
     a.flash(`Wait for ${starting.device.name} to start`);
     return;

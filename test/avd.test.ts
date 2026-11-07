@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseIni, runtimeName, screenOf } from "../src/avd";
+import { parseIni, runtimeName, screenOf } from "../src/android/avd";
 import { toRGBA } from "../src/view/shapes";
 
 test("parseIni keeps everything after the first =", () => {

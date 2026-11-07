@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { parse, readEvents } from "../src/input";
+import { parse, readEvents } from "../src/terminal/input";
 
 const key = (rune: string, name = "") => ({ kind: "key", rune, name });
 const mouse = (button: number, x: number, y: number, release = false, motion = false) => ({ kind: "mouse", button, x, y, release, motion });

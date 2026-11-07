@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { frameSize } from "../src/idb";
+import { frameSize } from "../src/ios/idb";
 
 const iphone18Pro = { width: 1206, height: 2622, widthPoints: 402, heightPoints: 874 };
 

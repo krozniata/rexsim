@@ -1,0 +1,92 @@
+import type { Mouse } from "../terminal/input";
+import type { App } from "./app";
+import { contains } from "./layout";
+import type { Phone } from "./phone";
+import { sidebarMouse } from "./sidebar";
+
+const moveInterval = 12;
+const wheelWindow = 100;
+const wheelStep = 30;
+
+// Pointer turns clicks and drags into touches on the phones, and the wheel
+// into swipes.
+export class Pointer {
+  private wheelPhone: Phone | null = null;
+  private wheelDY = 0;
+  private wheelX = 0;
+  private wheelY = 0;
+  private wheelTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private a: App) {}
+
+  stop(): void {
+    clearTimeout(this.wheelTimer);
+  }
+
+  async mouse(m: Mouse): Promise<void> {
+    const a = this.a;
+    if (await sidebarMouse(a, m)) return;
+    if (m.button >= 64) {
+      if (m.button > 65 || m.release || m.motion) return;
+      const p = this.phoneAt(m.x, m.y);
+      if (!p) return;
+      if (p !== this.wheelPhone && this.wheelPhone) this.flushWheel();
+      this.wheelPhone = p;
+      this.wheelDY += m.button === 64 ? 1 : -1;
+      [this.wheelX, this.wheelY] = p.point(m.x, m.y);
+      this.wheelTimer ??= setTimeout(() => a.events.push({ kind: "wheel" }), wheelWindow);
+    } else if (m.button === 0 && !m.motion && !m.release) {
+      const p = this.phoneAt(m.x, m.y);
+      if (!p) {
+        for (const q of a.phones) if (contains(q.frame, m.x, m.y)) a.setFocus(q);
+        return;
+      }
+      a.setFocus(p);
+      p.touching = true;
+      p.lastMove = performance.now();
+      this.touch(p, m, true);
+    } else if (m.motion && m.button === 0) {
+      for (const p of a.phones) {
+        if (p.touching && performance.now() - p.lastMove >= moveInterval) {
+          p.lastMove = performance.now();
+          this.touch(p, m, true);
+        }
+      }
+    } else if (m.release) {
+      for (const p of a.phones) {
+        if (p.touching) {
+          p.touching = false;
+          this.touch(p, m, false);
+        }
+      }
+    }
+  }
+
+  // flushWheel turns the wheel ticks of the last moment into one swipe
+  // centred on the pointer. Sending a swipe per tick would queue up faster
+  // than the phone plays them.
+  flushWheel(): void {
+    clearTimeout(this.wheelTimer);
+    this.wheelTimer = undefined;
+    const p = this.wheelPhone;
+    const d = Math.min(Math.max(this.wheelDY * wheelStep, -400), 400);
+    this.wheelDY = 0;
+    const s = p?.session;
+    if (!p || !s || d === 0) return;
+    const h = p.screen.heightPoints;
+    const y0 = Math.min(Math.max(this.wheelY - d / 2, 1), h - 1);
+    const y1 = Math.min(Math.max(this.wheelY + d / 2, 1), h - 1);
+    this.a.report(s.swipe(this.wheelX, y0, this.wheelX, y1, 0.08));
+  }
+
+  private touch(p: Phone, m: Mouse, down: boolean): void {
+    const s = p.session;
+    if (!s) return;
+    const [x, y] = p.point(m.x, m.y);
+    this.a.report(s.touch(x, y, down));
+  }
+
+  private phoneAt(px: number, py: number): Phone | null {
+    return this.a.phones.find((p) => p.session && contains(p.box, px, py)) ?? null;
+  }
+}

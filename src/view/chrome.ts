@@ -1,5 +1,5 @@
 import type { Platform } from "../device";
-import { cellHeight, cellWidth } from "../term";
+import { cellHeight, cellWidth } from "../terminal/term";
 import type { App } from "./app";
 import { captionRows, gapCols } from "./layout";
 import type { Phone } from "./phone";
@@ -32,7 +32,7 @@ function drawHeader(a: App): void {
   a.t.write(`\x1b[1;1H\x1b[0m\x1b[2K ${sgr(a.pal.accent, "1")}◆ rexsim`);
   const n = a.phones.length;
   if (a.solo && n > 1) a.t.write(`${sgr(a.pal.dim)}  ${a.focusIndex() + 1} of ${n} · focus`);
-  else if (n > 1) a.t.write(`${sgr(a.pal.dim)}  ${n} simulators`);
+  else if (n > 1) a.t.write(`${sgr(a.pal.dim)}  ${n} devices`);
 }
 
 export function platformAccent(a: App, platform: Platform): string {
@@ -56,15 +56,13 @@ function drawFrame(a: App, p: Phone): void {
   let name = p.device.name;
   let detail: string;
   let nameStyle = sgr(a.pal.text, "1");
-  if (p.failed !== "") {
-    detail = "  " + p.failed;
+  if (p.state.kind === "failed") {
+    detail = "  " + p.state.reason;
     nameStyle = sgr(a.pal.err, "1");
-  } else if (p.connecting && !p.device.booted) {
-    detail = "  booting…";
-  } else if (p.connecting) {
-    detail = "  connecting…";
+  } else if (p.state.kind === "connecting") {
+    detail = p.device.booted ? "  connecting…" : "  booting…";
   } else {
-    detail = "  " + p.session!.os;
+    detail = "  " + p.state.session.os;
     if (focused) nameStyle = sgr(phoneAccent(a, p), "1");
   }
   name = clip(name, room);
@@ -107,7 +105,7 @@ function drawBorder(a: App, p: Phone, focused: boolean): void {
   }
 }
 
-// drawFooter shows the shortcuts that act on the simulator, then those that
+// drawFooter shows the shortcuts that act on the device, then those that
 // act on rexsim, with the frame rate at the end. A status message takes the
 // place of the shortcuts for a moment.
 function drawFooter(a: App): void {
@@ -126,15 +124,15 @@ function drawFooter(a: App): void {
 
 type Hint = [key: string, label: string];
 
-// hintGroups lists the shortcuts that act on the simulator, then those that
+// hintGroups lists the shortcuts that act on the device, then those that
 // act on rexsim itself.
 function hintGroups(a: App): Hint[][] {
   if (a.sidebar) return [[["↑↓", "move"], ["space", "show or hide"], ["esc", "close"], ["⌃]", "quit"]]];
-  const simulator: Hint[] = [["⌃B", "home"], ["⌃L", "lock"], ["⌃S", "screenshot"]];
-  if (a.focus?.device.platform === "android") simulator.splice(1, 0, ["esc", "back"]);
-  let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "simulators"], ["⌃]", "quit"]];
+  const device: Hint[] = [["⌃B", "home"], ["⌃L", "lock"], ["⌃S", "screenshot"]];
+  if (a.focus?.device.platform === "android") device.splice(1, 0, ["esc", "back"]);
+  let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "devices"], ["⌃]", "quit"]];
   if (a.phones.length < 2) rexsim = rexsim.slice(2);
-  return [simulator, rexsim];
+  return [device, rexsim];
 }
 
 // drawHints writes the groups with a divider between them, as many hints as

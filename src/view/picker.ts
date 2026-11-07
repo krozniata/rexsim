@@ -1,5 +1,6 @@
-import { type Device, find, devices as listDevices, label as deviceLabel } from "../device";
-import { cellHeight } from "../term";
+import { type Device, label as deviceLabel, resolve } from "../device";
+import { devices as listDevices } from "../platforms";
+import { cellHeight } from "../terminal/term";
 import { type App, Quit } from "./app";
 import { platformAccent, width } from "./chrome";
 import { entryOf, groupEntries, platformName, scrollTo } from "./groups";
@@ -7,13 +8,7 @@ import { sgr } from "./theme";
 
 export async function chooseDevices(a: App): Promise<Device[]> {
   const devices = await listDevices(a.signal);
-  if (a.opts.ids.length > 0) {
-    return a.opts.ids.map((id) => {
-      const d = find(devices, id);
-      if (!d) throw new Error(`no simulator or emulator is called ${id}`);
-      return d;
-    });
-  }
+  if (a.opts.ids.length > 0) return resolve(devices, a.opts.ids);
   if (devices.length === 0) {
     throw new Error("no simulators or emulators are available; add one in Xcode or Android Studio");
   }

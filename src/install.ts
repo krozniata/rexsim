@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import actionLua from "./rexsim.lua" with { type: "text" };
 import skillTemplate from "./skill.md" with { type: "text" };
+import { run } from "./exec";
 
 const requireLine = `require("rexsim")`;
 
@@ -93,9 +94,8 @@ export async function uninstall(): Promise<void> {
 async function reload(): Promise<void> {
   let detail: string;
   try {
-    const proc = Bun.spawn(["rex", "config", "reload"], { stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    detail = code === 0 ? "" : (out + err).trim() || `exit status ${code}`;
+    const { code, out } = await run(["rex", "config", "reload"]);
+    detail = code === 0 ? "" : out || `exit status ${code}`;
   } catch (err) {
     detail = (err as Error).message;
   }

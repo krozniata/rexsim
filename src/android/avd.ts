@@ -1,12 +1,12 @@
 // Lists, boots and shuts down Android emulators from the AVDs that Android
 // Studio makes.
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cacheDir } from "./companion";
-import type { Device, Screen } from "./device";
+import { compareDevices, type Device, type Screen } from "../device";
 import { Client } from "./emulator";
+import { openLog, poll } from "../exec";
 
 // Running is an emulator's gRPC endpoint, from its discovery file.
 export type Running = { id: string; pid: number; port: number; token: string; serial: string };
@@ -66,11 +66,7 @@ export async function devices(): Promise<Device[]> {
     if (serials.get(id)) d.serial = serials.get(id);
     found.push({ d, api });
   }
-  found.sort((a, b) => {
-    if (a.d.booted !== b.d.booted) return a.d.booted ? -1 : 1;
-    if (a.api !== b.api) return b.api - a.api;
-    return a.d.name < b.d.name ? -1 : a.d.name > b.d.name ? 1 : 0;
-  });
+  found.sort((a, b) => compareDevices(a.d, b.d, b.api - a.api));
   return found.map((f) => f.d);
 }
 
@@ -144,33 +140,30 @@ export function running(id: string): Running | null {
 export async function boot(signal: AbortSignal, id: string): Promise<Running> {
   const bin = join(sdkRoot(), "emulator", "emulator");
   if (!existsSync(bin)) throw new Error(`no Android emulator at ${bin}; set ANDROID_HOME to the SDK`);
-  const root = cacheDir();
-  mkdirSync(root, { recursive: true });
-  const logPath = join(root, `emulator-${id}.log`);
-  const log = openSync(logPath, "w", 0o600);
+  const log = openLog(`emulator-${id}.log`);
   let failed = false;
   let child: ReturnType<typeof spawn>;
   try {
     child = spawn(bin, ["-avd", id, "-no-window", "-no-audio", "-no-boot-anim"], {
       detached: true,
-      stdio: ["ignore", log, log],
+      stdio: ["ignore", log.fd, log.fd],
     });
     child.on("error", () => (failed = true));
     child.on("exit", (code) => (failed ||= code !== 0));
     child.unref();
   } finally {
-    closeSync(log);
+    closeSync(log.fd);
   }
 
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    const r = running(id);
-    if (r) return r;
-    if (signal.aborted || Date.now() > deadline) stop(child);
-    if (signal.aborted) throw signal.reason;
-    if (failed) throw new Error(`the emulator exited; see ${logPath}`);
-    if (Date.now() > deadline) throw new Error(`the emulator did not start; see ${logPath}`);
-    await Bun.sleep(200);
+  try {
+    return await poll(signal, 60_000, 200, () => new Error(`the emulator did not start; see ${log.path}`), () => {
+      const r = running(id);
+      if (r) return r;
+      if (failed) throw new Error(`the emulator exited; see ${log.path}`);
+    });
+  } catch (err) {
+    stop(child);
+    throw err;
   }
 }
 

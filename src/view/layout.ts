@@ -1,4 +1,4 @@
-import { cellHeight, cellWidth, type Size } from "../term";
+import { cellHeight, cellWidth, type Size } from "../terminal/term";
 
 export const marginCols = 2;
 export const gapCols = 4;

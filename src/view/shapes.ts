@@ -1,5 +1,5 @@
 import type { Platform } from "../device";
-import type { Image } from "../kitty";
+import type { Image } from "../terminal/kitty";
 
 // screenRadius is a phone's screen corner radius as a fraction of its width.
 // The framebuffer is square, so rexsim rounds it the way the hardware is.

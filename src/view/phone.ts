@@ -1,28 +1,31 @@
-import { connect, type Device, type Frame, type Screen, type Session } from "../device";
-import { Placer } from "../kitty";
+import type { Device, Frame, Screen, Session } from "../device";
+import { connect } from "../platforms";
+import { Placer } from "../terminal/kitty";
 import { emptyBox, type Box } from "./layout";
 import { cornerMask, screenRadius, toRGBA } from "./shapes";
-
-const maxSimulatorPixels = 1_300_000;
 
 // ViewFrame is one screen, converted to RGBA with rounded corners.
 export type ViewFrame = { width: number; height: number; rgba: Uint8Array };
 
+// PhoneState is where a phone's connection stands. A phone whose stream
+// failed keeps its session until it closes.
+export type PhoneState =
+  | { kind: "connecting"; cancel: AbortController }
+  | { kind: "ready"; session: Session }
+  | { kind: "failed"; reason: string; session?: Session };
+
+const noScreen: Screen = { width: 0, height: 0, widthPoints: 0, heightPoints: 0 };
+
 // Phone is one simulator or emulator in the pane, with its own session and
 // stream.
 export class Phone {
-  session: Session | null = null;
-  screen: Screen = { width: 0, height: 0, widthPoints: 0, heightPoints: 0 };
+  state: PhoneState = { kind: "connecting", cancel: new AbortController() };
 
   private latest: Frame | null = null;
   private lastSum: number | bigint = 0;
   private corners: { r: number; mask: Uint8Array } = { r: -1, mask: new Uint8Array(0) };
   private stopStream: AbortController | null = null;
   scale = 0;
-  failed = "";
-
-  connecting = true;
-  cancelConnect: AbortController | null = null;
 
   placer = new Placer();
   current: ViewFrame | null = null;
@@ -38,22 +41,50 @@ export class Phone {
 
   constructor(public device: Device) {}
 
+  // session is the phone's session while it takes input.
+  get session(): Session | null {
+    return this.state.kind === "ready" ? this.state.session : null;
+  }
+
+  get screen(): Screen {
+    return this.state.kind === "connecting" ? noScreen : (this.state.session?.screen ?? noScreen);
+  }
+
+  // connect boots the device if needed and connects to it in the
+  // background. It leaves the result to the main loop, which owns the
+  // phone's state.
+  connect(signal: AbortSignal, progress: (text: string) => void): Promise<Connection> {
+    const cancel = new AbortController();
+    this.state = { kind: "connecting", cancel };
+    return connect(AbortSignal.any([signal, cancel.signal]), this.device, progress).then(
+      (session) => ({ p: this, session }),
+      (err) => ({ p: this, err: err instanceof Error ? err : new Error(String(err)) }),
+    );
+  }
+
+  // fail marks the phone failed, keeping its session to close later.
+  fail(reason: string): void {
+    this.state = { kind: "failed", reason, session: this.state.kind === "connecting" ? undefined : this.state.session };
+  }
+
   async close(): Promise<void> {
     this.latest = null;
-    this.cancelConnect?.abort();
     this.stopStream?.abort();
-    await this.session?.close();
+    if (this.state.kind === "connecting") this.state.cancel.abort();
+    else await this.state.session?.close();
     this.placer.close();
     this.border.close();
   }
 
   startStream(signal: AbortSignal, fps: number, ready: () => void, failed: (err: Error) => void): void {
+    const session = this.session;
+    if (!session) return;
     this.stopStream?.abort();
     const stop = new AbortController();
     this.stopStream = stop;
     this.lastSum = 0;
     const streamSignal = AbortSignal.any([signal, stop.signal]);
-    this.session!.stream(streamSignal, fps, this.scale, (f) => this.onFrame(f, ready)).then((err) => {
+    session.stream(streamSignal, fps, this.scale, (f) => this.onFrame(f, ready)).then((err) => {
       if (!streamSignal.aborted) failed(err);
     });
   }
@@ -107,12 +138,13 @@ export class Phone {
     return Math.min(this.maxScale(), Math.max(0.1, s));
   }
 
-  // maxScale keeps a simulator's frames within what idb_companion can send
-  // at 60 fps, about 320 MB/s of raw pixels. A phone drawn larger is scaled
-  // up by the terminal, slightly softer but smooth.
+  // maxScale keeps frames within what the stream can send at full rate. A
+  // phone drawn larger is scaled up by the terminal, slightly softer but
+  // smooth.
   private maxScale(): number {
-    if (this.device.platform !== "ios") return 1;
-    const s = Math.sqrt(maxSimulatorPixels / (this.screen.width * this.screen.height));
+    const max = this.session?.maxPixels;
+    if (!max) return 1;
+    const s = Math.sqrt(max / (this.screen.width * this.screen.height));
     return Math.min(1, Math.floor(s * 20) / 20);
   }
 
@@ -126,20 +158,9 @@ export class Phone {
   }
 }
 
-// Connection is the result of dial, handed to the main loop, which owns the
-// phone's fields.
-export type Connection = { p: Phone; session?: Session; err?: Error };
+// Connection is the result of connect, handed to the main loop.
+export type Connection = { p: Phone; session: Session } | { p: Phone; err: Error };
 
 export async function closeConnection(c: Connection): Promise<void> {
-  await c.session?.close();
-}
-
-// dial boots a device if needed and connects to it. It doesn't touch the
-// phone.
-export async function dial(signal: AbortSignal, companionBin: () => Promise<string>, p: Phone, d: Device): Promise<Connection> {
-  try {
-    return { p, session: await connect(signal, d, companionBin) };
-  } catch (err) {
-    return { p, err: err instanceof Error ? err : new Error(String(err)) };
-  }
+  if ("session" in c) await c.session.close();
 }

@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { socketDir } from "./companion";
+import { socketDir } from "./paths";
 
 export type Request = { show: string[] };
 export type Reply = { ok: true; message: string } | { ok: false; error: string };

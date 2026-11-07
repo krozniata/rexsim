@@ -30,3 +30,9 @@ export function keyFor(ch: string): { code: number; shift: boolean } | null {
   const s = symbols[ch];
   return s ? { code: s[0], shift: s[1] } : null;
 }
+
+// keysFor lists the taps that type s on a US keyboard, skipping characters
+// it doesn't have.
+export function keysFor(s: string): { code: number; shift: boolean }[] {
+  return [...s].flatMap((ch) => keyFor(ch) ?? []);
+}

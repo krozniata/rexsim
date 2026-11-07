@@ -1,4 +1,4 @@
-import type { Image } from "../kitty";
+import type { Image } from "../terminal/kitty";
 import type { App } from "./app";
 import type { Box } from "./layout";
 import type { Phone } from "./phone";
