@@ -1,11 +1,13 @@
 import type { Device, Frame, Screen, Session } from "../device";
 import { connect } from "../platforms";
-import { Placer } from "../terminal/kitty";
+import { Placer, Sprites } from "../terminal/kitty";
 import { emptyBox, type Box } from "./layout";
-import { cornerMask, screenRadius, toRGBA } from "./shapes";
+import type { RGB } from "./theme";
+import { cornerMask, fillCorners, rgbToRGBA, screenRadius, toRGB, toRGBA } from "./shapes";
 
-// ViewFrame is one screen, converted to RGBA with rounded corners.
-export type ViewFrame = { width: number; height: number; rgba: Uint8Array };
+// ViewFrame is one screen with rounded corners: RGB (24) with the corners
+// filled in, or RGBA (32) with them transparent.
+export type ViewFrame = { width: number; height: number; format: 24 | 32; pix: Uint8Array };
 
 // PhoneState is where a phone's connection stands. A phone whose stream
 // failed keeps its session until it closes.
@@ -23,6 +25,7 @@ export class Phone {
 
   private latest: Frame | null = null;
   private lastSum: number | bigint = 0;
+  private buffers: Uint8Array<ArrayBuffer>[] = [];
   private corners: { r: number; mask: Uint8Array } = { r: -1, mask: new Uint8Array(0) };
   private stopStream: AbortController | null = null;
   scale = 0;
@@ -33,7 +36,7 @@ export class Phone {
   frameH = 0;
   frame: Box = emptyBox;
   box: Box = emptyBox;
-  border = new Placer();
+  border = new Sprites();
   borderKey = "";
 
   touching = false;
@@ -101,7 +104,7 @@ export class Phone {
   // unlike Go's goroutine per stream, so the conversion waits for takeLatest
   // and is skipped for frames that a newer one replaces before they're drawn.
   // A companion sends frames at a steady rate even when nothing changes,
-  // so identical ones are dropped.
+  // and an emulator repeats some, so identical ones are dropped.
   private onFrame(f: Frame, ready: () => void): void {
     const sum = Bun.hash(f.pix);
     const same = sum === this.lastSum;
@@ -111,13 +114,33 @@ export class Phone {
     ready();
   }
 
-  takeLatest(): ViewFrame | null {
+  // takeLatest converts into whichever of two buffers current doesn't hold,
+  // rather than a new one per frame, whose garbage collection stalls the
+  // loop now and then. Given the pane's colour, it fills the corners with it
+  // and drops the alpha channel, since Rex shows opaque RGB frames more
+  // smoothly than RGBA ones of the same size. An RGB frame, which nothing
+  // else holds, has its corners filled in place instead.
+  takeLatest(background: RGB | null = null): ViewFrame | null {
     const f = this.latest;
     if (!f) return null;
     this.latest = null;
     const r = Math.trunc(screenRadius(f.width / f.height, this.device.platform) * f.width);
     if (r !== this.corners.r) this.corners = { r, mask: cornerMask(r) };
-    return { width: f.width, height: f.height, rgba: toRGBA(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra) };
+    if (f.channels === 3 && background) {
+      fillCorners(f.pix, f.width, f.height, this.corners.mask, r, background);
+      return { width: f.width, height: f.height, format: 24, pix: f.pix };
+    }
+    const spare = this.buffers.find((b) => b !== this.current?.pix);
+    if (f.channels === 3) {
+      const pix = rgbToRGBA(f.pix, f.width, f.height, this.corners.mask, r, spare);
+      if (pix !== spare) this.buffers = [pix, ...this.buffers.filter((b) => b === this.current?.pix)];
+      return { width: f.width, height: f.height, format: 32, pix };
+    }
+    const pix = background
+      ? toRGB(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra, background, spare)
+      : toRGBA(f.pix, f.width, f.height, f.stride, this.corners.mask, r, f.bgra, spare);
+    if (pix !== spare) this.buffers = [pix, ...this.buffers.filter((b) => b === this.current?.pix)];
+    return { width: f.width, height: f.height, format: background ? 24 : 32, pix };
   }
 
   // aspect is the phone's width over its height: the frame's once one

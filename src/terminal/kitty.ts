@@ -73,3 +73,57 @@ export class Placer {
     this.pending.forEach(removeTemp);
   }
 }
+
+// Sprites keeps one look's images in the terminal, such as a border in
+// each of its colours, so showing one again sends no pixels. Its two image
+// ids are base+1 and base+2. A new look frees the images of the old one.
+export class Sprites {
+  base = 0;
+  private look = "";
+  private ids = new Map<string, number>();
+  private shown = 0;
+  private pending: string[] = [];
+
+  // show places the image for variant over the cell box at (col, row),
+  // sending it with make the first time. Like Placer, it shows the new
+  // placement before removing the old one.
+  show(t: Terminal, look: string, variant: string, make: () => Image, col: number, row: number, cols: number, rows: number, z: number): void {
+    if (look !== this.look || (!this.ids.has(variant) && this.ids.size === 2)) this.free(t, look);
+    let id = this.ids.get(variant);
+    if (id === undefined) {
+      id = this.base + this.ids.size + 1;
+      this.ids.set(variant, id);
+      const img = make();
+      const path = writeTemp(img.pix);
+      this.pending.push(path);
+      if (this.pending.length > 4) this.pending.shift();
+      t.write(`\x1b_Ga=t,q=2,f=${img.format},t=t,s=${img.width},v=${img.height},i=${id};${Buffer.from(path).toString("base64")}\x1b\\`);
+    }
+    t.write(`\x1b[${row + 1};${col + 1}H\x1b_Ga=p,q=2,i=${id},p=1,c=${cols},r=${rows},z=${z},C=1\x1b\\`);
+    if (this.shown !== 0 && this.shown !== id) t.write(`\x1b_Ga=d,d=i,q=2,i=${this.shown}\x1b\\`);
+    this.shown = id;
+  }
+
+  // delete hides the image shown, keeping the images to show again.
+  delete(t: Terminal): void {
+    if (this.shown === 0) return;
+    t.write(`\x1b_Ga=d,d=i,q=2,i=${this.shown}\x1b\\`);
+    this.shown = 0;
+  }
+
+  // clear frees every image, for a phone that goes away.
+  clear(t: Terminal): void {
+    this.free(t, "");
+  }
+
+  private free(t: Terminal, look: string): void {
+    for (const id of this.ids.values()) t.write(`\x1b_Ga=d,d=I,q=2,i=${id}\x1b\\`);
+    this.ids.clear();
+    this.shown = 0;
+    this.look = look;
+  }
+
+  close(): void {
+    this.pending.forEach(removeTemp);
+  }
+}

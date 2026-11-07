@@ -1,5 +1,6 @@
 import type { Platform } from "../device";
 import type { Image } from "../terminal/kitty";
+import type { RGB } from "./theme";
 
 // screenRadius is a phone's screen corner radius as a fraction of its width.
 // The framebuffer is square, so rexsim rounds it the way the hardware is.
@@ -31,11 +32,12 @@ export function cornerMask(r: number): Uint8Array {
 // little-endian pixel at a time, which needs the source 4-byte aligned;
 // protobuf hands over the frame at any offset, so a misaligned one is copied
 // first. The copy uses the Uint8Array constructor because Buffer's slice
-// returns a view.
+// returns a view. It writes into out when out has the right size.
 export function toRGBA(
   pix: Uint8Array, width: number, height: number, stride: number, mask: Uint8Array, r: number, bgra = true,
+  out?: Uint8Array<ArrayBuffer>,
 ): Uint8Array<ArrayBuffer> {
-  const dst = new Uint8Array(width * height * 4);
+  const dst = out?.length === width * height * 4 ? out : new Uint8Array(width * height * 4);
   const d32 = new Uint32Array(dst.buffer);
   const src = pix.byteOffset % 4 === 0 ? pix : new Uint8Array(pix);
   const s32 = new Uint32Array(src.buffer, src.byteOffset, src.byteLength >>> 2);
@@ -52,6 +54,26 @@ export function toRGBA(
       for (let j = y * rowWords; j < end; j++) d32[i++] = s32[j] | 0xff000000;
     }
   }
+  clearCorners(dst, width, height, mask, r);
+  return dst;
+}
+
+// rgbToRGBA turns packed RGB pixels into opaque RGBA with the corners
+// outside the screen's radius transparent, for when the background is
+// unknown.
+export function rgbToRGBA(pix: Uint8Array, width: number, height: number, mask: Uint8Array, r: number, out?: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+  const dst = out?.length === width * height * 4 ? out : new Uint8Array(width * height * 4);
+  for (let i = 0, j = 0; j < dst.length; i += 3, j += 4) {
+    dst[j] = pix[i];
+    dst[j + 1] = pix[i + 1];
+    dst[j + 2] = pix[i + 2];
+    dst[j + 3] = 255;
+  }
+  clearCorners(dst, width, height, mask, r);
+  return dst;
+}
+
+function clearCorners(dst: Uint8Array, width: number, height: number, mask: Uint8Array, r: number): void {
   const maskWidth = r;
   r = Math.min(r, Math.trunc(width / 2), Math.trunc(height / 2));
   for (let y = 0; y < r; y++) {
@@ -63,21 +85,70 @@ export function toRGBA(
       dst[((height - 1 - y) * width + width - 1 - x) * 4 + 3] = a;
     }
   }
+}
+
+// toRGB is toRGBA for a background that is known: it blends the corners
+// outside the screen's radius into bg and leaves out the alpha channel.
+export function toRGB(
+  pix: Uint8Array, width: number, height: number, stride: number, mask: Uint8Array, r: number, bgra: boolean, bg: RGB,
+  out?: Uint8Array<ArrayBuffer>,
+): Uint8Array<ArrayBuffer> {
+  const dst = out?.length === width * height * 3 ? out : new Uint8Array(width * height * 3);
+  const src = pix.byteOffset % 4 === 0 ? pix : new Uint8Array(pix);
+  const s32 = new Uint32Array(src.buffer, src.byteOffset, src.byteLength >>> 2);
+  const rowWords = stride >>> 2;
+  const rs = bgra ? 16 : 0;
+  const bs = bgra ? 0 : 16;
+  let i = 0;
+  for (let y = 0; y < height; y++) {
+    const end = y * rowWords + width;
+    for (let j = y * rowWords; j < end; j++) {
+      const v = s32[j];
+      dst[i] = v >>> rs;
+      dst[i + 1] = v >>> 8;
+      dst[i + 2] = v >>> bs;
+      i += 3;
+    }
+  }
+  fillCorners(dst, width, height, mask, r, bg);
   return dst;
 }
 
-// thumbnail shrinks RGBA pixels to at most maxHeight rows by sampling, which
-// is enough while an image is moving.
-export function thumbnail(rgba: Uint8Array, width: number, height: number, maxHeight: number): Image {
+// fillCorners blends the corners of packed RGB pixels outside the screen's
+// radius into bg, in place.
+export function fillCorners(dst: Uint8Array, width: number, height: number, mask: Uint8Array, r: number, bg: RGB): void {
+  const maskWidth = r;
+  r = Math.min(r, Math.trunc(width / 2), Math.trunc(height / 2));
+  const blend = (k: number, a: number) => {
+    for (let c = 0; c < 3; c++) dst[k + c] = (dst[k + c] * a + bg[c] * (255 - a) + 127) / 255;
+  };
+  for (let y = 0; y < r; y++) {
+    for (let x = 0; x < r; x++) {
+      const a = mask[y * maskWidth + x];
+      if (a === 255) continue;
+      blend((y * width + x) * 3, a);
+      blend((y * width + width - 1 - x) * 3, a);
+      blend(((height - 1 - y) * width + x) * 3, a);
+      blend(((height - 1 - y) * width + width - 1 - x) * 3, a);
+    }
+  }
+}
+
+// thumbnail shrinks RGB or RGBA pixels, as format says, to at most
+// maxHeight rows by sampling, which is enough while an image is moving.
+export function thumbnail(pix: Uint8Array, format: 24 | 32, width: number, height: number, maxHeight: number): Image {
   const step = Math.max(1, Math.ceil(height / maxHeight));
   const w = Math.trunc(width / step);
   const h = Math.trunc(height / step);
-  const src = new Uint32Array(rgba.buffer, rgba.byteOffset, rgba.byteLength >>> 2);
-  const pix = new Uint32Array(w * h);
+  const n = format / 8;
+  const out = new Uint8Array(w * h * n);
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) pix[y * w + x] = src[y * step * width + x * step];
+    for (let x = 0; x < w; x++) {
+      const from = (y * step * width + x * step) * n;
+      out.set(pix.subarray(from, from + n), (y * w + x) * n);
+    }
   }
-  return { pix: new Uint8Array(pix.buffer), format: 32, width: w, height: h };
+  return { pix: out, format, width: w, height: h };
 }
 
 // roundedOutline draws an anti-aliased rounded rectangle outline in an RGBA

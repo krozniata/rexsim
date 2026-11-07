@@ -12,10 +12,10 @@ export type Device = { id: string; name: string; runtime: string; booted: boolea
 // Android point is a density-independent pixel.
 export type Screen = { width: number; height: number; widthPoints: number; heightPoints: number };
 
-// Frame holds 4-byte pixels, BGRA from a simulator and RGBA from an
-// emulator. Rows are stride bytes apart, because a simulator's framebuffer
-// pads each row.
-export type Frame = { width: number; height: number; stride: number; bgra: boolean; pix: Uint8Array };
+// Frame holds BGRA pixels from a simulator, or packed RGB ones, 3 bytes
+// each, from an emulator. Rows are stride bytes apart, because a
+// simulator's framebuffer pads each row.
+export type Frame = { width: number; height: number; stride: number; channels: 3 | 4; bgra: boolean; pix: Uint8Array };
 
 export type Button = "HOME" | "LOCK";
 
@@ -26,6 +26,12 @@ export interface Session {
   // maxPixels is the largest frame the stream can send at full rate, when
   // it has a limit.
   readonly maxPixels?: number;
+  // warning says why the phone may stream poorly, such as an emulator that
+  // renders on the CPU.
+  readonly warning?: string;
+  // dragScroll is true when the wheel should scroll by dragging one finger
+  // that stays down rather than by a swipe per burst of the wheel.
+  readonly dragScroll?: boolean;
   // stream asks for fps frames a second, which an emulator ignores: it
   // sends one whenever the screen changes.
   stream(signal: AbortSignal, fps: number, scale: number, onFrame: (f: Frame) => void): Promise<Error>;

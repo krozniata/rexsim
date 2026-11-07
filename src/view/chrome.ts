@@ -75,8 +75,11 @@ function drawFrame(a: App, p: Phone): void {
 // drawBorder draws a rounded outline around the phone as an image, because
 // box-drawing characters can't round a corner by more than a cell. The
 // outline sits a uniform gap outside the screen, and its radius is the
-// screen's plus that gap, so the corners stay concentric. It is redrawn only
-// when its look changes.
+// screen's plus that gap, so the corners stay concentric. It sits above the
+// frame, whose corners may be filled in, and never overlaps the screen
+// itself. It is redrawn only
+// when its look changes, and the terminal keeps it in both colours, so a
+// change of focus sends no pixels.
 function drawBorder(a: App, p: Phone, focused: boolean): void {
   const color = focused ? phoneAccent(a, p) : a.pal.frame;
   const key = JSON.stringify(p.frame) + color;
@@ -97,9 +100,9 @@ function drawBorder(a: App, p: Phone, focused: boolean): void {
   const right = left + b.w + 2 * gap;
   const bottom = top + b.h + 2 * gap;
   const r = screenRadius(p.aspect(), p.device.platform) * b.w + gap;
-  const img = { pix: roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color)), format: 32, width: w, height: h };
+  const make = () => ({ pix: roundedOutline(w, h, left, top, right, bottom, r, stroke, rgbOf(color)), format: 32, width: w, height: h });
   try {
-    p.border.draw(a.t, img, f.col, f.row, f.cols, rows, -1);
+    p.border.show(a.t, JSON.stringify(p.frame), color, make, f.col, f.row, f.cols, rows, 1);
   } catch (err) {
     a.flash((err as Error).message);
   }

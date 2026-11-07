@@ -28,16 +28,22 @@ export function sgr(...params: string[]): string {
   return "\x1b[0;" + params.join(";") + "m";
 }
 
-// luminance reads a colour such as rgb:1e1e/1e1e/2020, where each channel
-// has one to four hex digits.
-export function luminance(spec: string): number | null {
+export type RGB = [r: number, g: number, b: number];
+
+// colorOf reads a colour such as rgb:1e1e/1e1e/2020, where each channel has
+// one to four hex digits, as 8-bit channels.
+export function colorOf(spec: string): RGB | null {
   if (!spec.startsWith("rgb:")) return null;
   const parts = spec.slice(4).split("/");
   if (parts.length !== 3) return null;
   const c: number[] = [];
   for (const p of parts) {
     if (!/^[0-9a-fA-F]{1,4}$/.test(p)) return null;
-    c.push(parseInt(p, 16) / (2 ** (4 * p.length) - 1));
+    c.push(Math.round((parseInt(p, 16) / (2 ** (4 * p.length) - 1)) * 255));
   }
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  return c as RGB;
+}
+
+export function luminance(c: RGB): number {
+  return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
 }

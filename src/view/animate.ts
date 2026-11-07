@@ -29,7 +29,7 @@ export async function animate(a: App, change: () => void): Promise<void> {
   for (const p of a.visible()) {
     if (before.has(p) && p.box.cols > 0 && p.current) {
       movers.push(p);
-      thumbs.set(p, thumbnail(p.current.rgba, p.current.width, p.current.height, animThumbHeight));
+      thumbs.set(p, thumbnail(p.current.pix, p.current.format, p.current.width, p.current.height, animThumbHeight));
     }
   }
   if (movers.length === 0 && panelFrom === panelTo) {

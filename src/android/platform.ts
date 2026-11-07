@@ -16,7 +16,8 @@ async function connect(signal: AbortSignal, d: Device): Promise<Session> {
   const client = new Client(e.port, e.token);
   try {
     const hw = await client.waitBooted(signal);
-    return new Emulator(client, d.runtime, avd.screenOf(hw));
+    const warning = avd.rendersOnCPU(hw) ? "renders on the CPU and may stutter; restart it by hiding and showing it with ⌃O" : undefined;
+    return new Emulator(client, d.runtime, avd.screenOf(hw), warning);
   } catch (err) {
     client.close();
     throw err;
@@ -26,12 +27,17 @@ async function connect(signal: AbortSignal, d: Device): Promise<Session> {
 // Emulator is a booted emulator as a Session. It converts points to the
 // pixels that the emulator's touches take.
 export class Emulator implements Session {
+  // A new finger stops the fling that the last one started, and Android
+  // ignores the first few points of every drag, so separate swipes per
+  // burst of the wheel scroll in fits and starts.
+  readonly dragScroll = true;
   private scale: number;
 
   constructor(
     private client: Client,
     readonly os: string,
     readonly screen: Screen,
+    readonly warning?: string,
   ) {
     this.scale = screen.width / screen.widthPoints;
   }

@@ -46,7 +46,7 @@ export class Client {
       if (!data?.length) return;
       const size = frameSize(data.length, s, scale);
       if (!size) return new Error(`unexpected frame of ${data.length} bytes at scale ${scale.toFixed(2)}`);
-      onFrame({ ...size, bgra: true, pix: data });
+      onFrame({ ...size, channels: 4, bgra: true, pix: data });
     });
     call.write({ start: { fps, format: "RBGA", compression_quality: 1, scale_factor: scale } });
     return stopped;
@@ -137,7 +137,7 @@ function keyEvents(code: number, shift: boolean): grpc.Message[] {
 // doesn't report them and rounds the scaled size its own way. The buffer pads
 // each row to an alignment, and can hold a few rows more than the image, as
 // at full scale on a 2622-pixel-tall screen, which arrives as 2624 rows.
-export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix" | "bgra"> | null {
+export function frameSize(n: number, s: Screen, scale: number): Omit<Frame, "pix" | "bgra" | "channels"> | null {
   for (const [dw, dh] of [
     [s.width, s.height],
     [s.height, s.width],

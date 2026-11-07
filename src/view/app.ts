@@ -16,7 +16,7 @@ import { Pointer } from "./pointer";
 import { Queue } from "./queue";
 import { sendScreenshot } from "./screenshot";
 import { markShutDown, panelCol, type Sidebar, sidebarKey, toggleSidebar } from "./sidebar";
-import { dark, light, luminance, type Palette, sgr } from "./theme";
+import { colorOf, dark, light, luminance, type Palette, type RGB, sgr } from "./theme";
 
 export type Options = { ids: string[]; agent: string; fps: number };
 
@@ -75,6 +75,9 @@ export class App {
   size: Size = { cols: 0, rows: 0, width: 0, height: 0 };
 
   pal: Palette = dark;
+  // background is the pane's colour, which fills a frame's corners so it
+  // can be sent without an alpha channel.
+  background: RGB | null = null;
   phones: Phone[] = [];
   focus: Phone | null = null;
   solo = false;
@@ -121,7 +124,7 @@ export class App {
         case "ready":
           this.readyQueued = false;
           for (const p of this.phones) {
-            const f = p.takeLatest();
+            const f = p.takeLatest(this.background);
             if (f) this.paint(p, f);
           }
           break;
@@ -189,6 +192,7 @@ export class App {
 
     for (const p of this.phones.filter((p) => p.state.kind === "failed" && wanted.some((d) => d.id === p.device.id))) {
       this.phones.splice(this.phones.indexOf(p), 1);
+      p.border.clear(this.t);
       void p.close();
     }
     const fresh = wanted.filter((d) => !this.phones.some((p) => p.device.id === d.id));
@@ -227,6 +231,7 @@ export class App {
     }
     p.state = "session" in c ? { kind: "ready", session: c.session } : { kind: "failed", reason: c.err.message };
     this.relayout();
+    if ("session" in c && c.session.warning) this.flash(`${p.device.name} ${c.session.warning}`);
   }
 
   // streamFailed keeps the other phones running when one stops, for example
@@ -271,8 +276,8 @@ export class App {
       const ev = await this.events.next(deadline - Date.now());
       if (!ev || ev.kind === "quit") return;
       if (ev.kind === "osc" && ev.text.startsWith("11;")) {
-        const l = luminance(ev.text.slice(3));
-        if (l !== null && l > 0.5) this.pal = light;
+        this.background = colorOf(ev.text.slice(3));
+        if (this.background && luminance(this.background) > 0.5) this.pal = light;
         return;
       }
     }
@@ -313,13 +318,13 @@ export class App {
     if (p.box.cols === 0) return;
     let path: string;
     try {
-      path = kitty.writeTemp(f.rgba);
+      path = kitty.writeTemp(f.pix);
     } catch (err) {
       this.flash((err as Error).message);
       return;
     }
     this.beginSync();
-    p.placer.place(this.t, path, 32, f.width, f.height, p.box.col, p.box.row, p.box.cols, p.box.rows, 0);
+    p.placer.place(this.t, path, f.format, f.width, f.height, p.box.col, p.box.row, p.box.cols, p.box.rows, 0);
     this.endSync();
     this.drawn++;
   }
@@ -488,6 +493,7 @@ export class App {
   removePhone(p: Phone): void {
     const i = this.phones.indexOf(p);
     this.phones.splice(i, 1);
+    p.border.clear(this.t);
     if (this.focus === p) this.focus = this.phones[Math.min(i, this.phones.length - 1)];
     if (this.phones.length < 2) this.solo = false;
     void p.close().then(() => shutdown(p.device));

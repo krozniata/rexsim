@@ -95,6 +95,12 @@ export function screenOf(hw: Record<string, string>): Screen {
   return { width, height, widthPoints: (width * 160) / density, heightPoints: (height * 160) / density };
 }
 
+// rendersOnCPU reports whether an emulator draws with a software renderer,
+// as one started without a window by something other than rexsim does.
+export function rendersOnCPU(hw: Record<string, string>): boolean {
+  return /swiftshader|lavapipe|guest/.test(hw["hw.gpu.mode"] ?? "");
+}
+
 // runningAll lists the emulators that serve gRPC. A crashed emulator leaves
 // its discovery file behind, so the process must still exist.
 function runningAll(): Running[] {
@@ -133,7 +139,9 @@ export function running(id: string): Running | null {
 }
 
 // boot starts an emulator without a window, since rexsim draws its screen,
-// and waits for its gRPC service to come up. The emulator runs in its own
+// and waits for its gRPC service to come up. Without a window the default
+// GPU mode falls back to rendering on the CPU, which takes several cores
+// and stutters, so it asks for the host's GPU. The emulator runs in its own
 // session, so it keeps running when rexsim's pane closes, as a simulator
 // does. One given up on before then is stopped, because without its gRPC
 // service nothing could shut down an emulator that has no window.
@@ -144,7 +152,7 @@ export async function boot(signal: AbortSignal, id: string): Promise<Running> {
   let failed = false;
   let child: ReturnType<typeof spawn>;
   try {
-    child = spawn(bin, ["-avd", id, "-no-window", "-no-audio", "-no-boot-anim"], {
+    child = spawn(bin, ["-avd", id, "-no-window", "-gpu", "host", "-no-audio", "-no-boot-anim"], {
       detached: true,
       stdio: ["ignore", log.fd, log.fd],
     });
