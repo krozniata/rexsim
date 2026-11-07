@@ -3,6 +3,8 @@ import { Placer } from "../kitty";
 import { emptyBox, type Box } from "./layout";
 import { cornerMask, screenRadius, toRGBA } from "./shapes";
 
+const maxSimulatorPixels = 1_300_000;
+
 // ViewFrame is one screen, converted to RGBA with rounded corners.
 export type ViewFrame = { width: number; height: number; rgba: Uint8Array };
 
@@ -102,7 +104,16 @@ export class Phone {
   wantScale(): number {
     if (this.box.h === 0) return 0.5;
     const s = Math.ceil((this.box.h / this.screen.height) * 20) / 20;
-    return Math.min(1, Math.max(0.1, s));
+    return Math.min(this.maxScale(), Math.max(0.1, s));
+  }
+
+  // maxScale keeps a simulator's frames within what idb_companion can send
+  // at 60 fps, about 320 MB/s of raw pixels. A phone drawn larger is scaled
+  // up by the terminal, slightly softer but smooth.
+  private maxScale(): number {
+    if (this.device.platform !== "ios") return 1;
+    const s = Math.sqrt(maxSimulatorPixels / (this.screen.width * this.screen.height));
+    return Math.min(1, Math.floor(s * 20) / 20);
   }
 
   // point maps a pixel in the pane to a point on the phone's screen.

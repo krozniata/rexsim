@@ -28,10 +28,12 @@ export class Client {
   private sending: Promise<unknown> = Promise.resolve();
 
   // The emulator listens on 127.0.0.1 only, and refuses calls without the
-  // token from its discovery file.
+  // token from its discovery file. The window is widened as for a simulator,
+  // so large frames don't wait on window updates.
   constructor(port: number, token: string) {
     this.svc = new EmulatorController(`127.0.0.1:${port}`, grpc.credentials.createInsecure(), {
       "grpc.max_receive_message_length": 256 << 20,
+      "grpc-node.flow_control_window": 16 << 20,
     });
     if (token) this.meta.set("authorization", `Bearer ${token}`);
   }

@@ -26,9 +26,12 @@ export class Client {
   private hid: grpc.ClientWritableStream<Message> | null = null;
   private sending: Promise<unknown> = Promise.resolve();
 
+  // The default 64 KB HTTP/2 window makes a frame of several megabytes wait
+  // on a window update every 64 KB, which caps the stream's frame rate.
   constructor(socket: string) {
     this.svc = new CompanionService(`unix://${socket}`, grpc.credentials.createInsecure(), {
       "grpc.max_receive_message_length": 256 << 20,
+      "grpc-node.flow_control_window": 16 << 20,
     });
   }
 
