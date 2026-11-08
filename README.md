@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="rexsim running in Rex beside Claude Code" width="900">
+  <img src="docs/demo.gif" alt="rexsim running in Rex beside Claude Code" width="900">
 </p>
 
 ## Features
