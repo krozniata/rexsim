@@ -16,10 +16,18 @@ const usage = `usage: rexsim [flags] | rexsim show [DEVICE...] | rexsim install 
   --udid ID     a device to show, as for show; repeat it or separate
                 them with commas to show several. Without it, rexsim asks unless one is booted
   --agent ID    the Rex block that ^S sends screenshots to; the Rex action sets it
-  --fps N       frames per second to stream (default 60)
-  --version     prints rexsim's version`;
+  -h, --help    prints this help
+  -v, --version prints rexsim's version`;
 
 async function main(args: string[]): Promise<void> {
+  if (args[0] === "help" || args.some((a) => a === "-h" || a === "--help")) {
+    console.log(usage);
+    return;
+  }
+  if (args[0] === "version" || args.some((a) => a === "-v" || a === "--version")) {
+    console.log(`rexsim ${version}`);
+    return;
+  }
   if (args[0] === "install") return install();
   if (args[0] === "uninstall") return uninstall();
   if (args[0] === "show") return show(args.slice(1));
@@ -28,23 +36,10 @@ async function main(args: string[]): Promise<void> {
     options: {
       udid: { type: "string", multiple: true, default: [] },
       agent: { type: "string", default: "" },
-      fps: { type: "string", default: "60" },
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean" },
     },
   });
-  if (values.help) {
-    console.log(usage);
-    return;
-  }
-  if (values.version) {
-    console.log(`rexsim ${version}`);
-    return;
-  }
-  const fps = Number(values.fps);
-  if (!Number.isInteger(fps) || fps <= 0) throw new Error(`invalid --fps ${values.fps}`);
   const ids = values.udid.flatMap((s) => s.split(",")).map((u) => u.trim()).filter(Boolean);
-  await run({ ids, agent: values.agent, fps });
+  await run({ ids, agent: values.agent });
 }
 
 try {

@@ -18,7 +18,7 @@ import { sendScreenshot } from "./screenshot";
 import { markShutDown, panelCol, type Sidebar, sidebarKey, toggleSidebar } from "./sidebar";
 import { colorOf, dark, light, luminance, type Palette, type RGB, sgr } from "./theme";
 
-export type Options = { ids: string[]; agent: string; fps: number };
+export type Options = { ids: string[]; agent: string };
 
 export class Quit extends Error {}
 
@@ -35,6 +35,7 @@ export type AppEvent =
   | { kind: "quit" };
 
 const statusTime = 4000;
+const streamFps = 60;
 const thumbFps = 10;
 const fetchTimeout = 200;
 const themeTimeout = 300;
@@ -382,7 +383,7 @@ export class App {
           continue;
         }
         const s = p.wantScale();
-        const fps = this.solo && p !== this.focus ? thumbFps : this.opts.fps;
+        const fps = this.solo && p !== this.focus ? thumbFps : streamFps;
         if ((s !== p.scale || fps !== p.fps) && p.session) {
           p.scale = s;
           this.stream(p, fps);
@@ -540,7 +541,7 @@ export class App {
     const big = this.focus!.box.h;
     if (p.session && big > 0) {
       p.scale = p.wantScale(big);
-      this.stream(p, this.opts.fps);
+      this.stream(p, streamFps);
       await p.frameDue(fetchTimeout);
       const f = p.takeLatest(this.background);
       if (f) p.current = f;
