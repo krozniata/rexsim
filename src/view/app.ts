@@ -11,7 +11,6 @@ import { animate } from "./animate";
 import { drawChrome } from "./chrome";
 import { computeLayout, computeSoloLayout, emptyBox } from "./layout";
 import { closeConnection, type Connection, Phone, type ViewFrame } from "./phone";
-import { chooseDevices } from "./picker";
 import { Pointer } from "./pointer";
 import { Queue } from "./queue";
 import { sendScreenshot } from "./screenshot";
@@ -63,8 +62,8 @@ export async function run(opts: Options): Promise<void> {
   } catch (e) {
     err = e;
   }
-  if (err && !(err instanceof Quit) && !a.signal.aborted) await a.fatal(err);
   a.stopTimers();
+  if (err && !(err instanceof Quit) && !a.signal.aborted) await a.fatal(err);
   await Promise.all(a.phones.map((p) => p.close()));
   kitty.removeTemps();
   t.close();
@@ -106,13 +105,13 @@ export class App {
   async run(): Promise<void> {
     this.updateSize();
     this.t.enableInput();
+    this.serve();
     await this.detectTheme();
     this.message("Looking for devices…");
-    const devices = await chooseDevices(this);
-    this.focus = this.add(devices)[0];
+    this.focus = this.add(await this.firstDevices())[0] ?? null;
     this.updateSize();
     this.relayout();
-    this.serve();
+    if (this.phones.length === 0) await toggleSidebar(this);
 
     this.tick = setInterval(() => this.events.push({ kind: "tick" }), 1000);
     for (;;) {
@@ -121,7 +120,7 @@ export class App {
         case "quit":
           return;
         case "failure":
-          this.streamFailed(ev.p, ev.err);
+          await this.streamFailed(ev.p, ev.err);
           break;
         case "ready":
           this.readyQueued = false;
@@ -165,8 +164,9 @@ export class App {
     this.stopServing();
   }
 
-  // serve takes "rexsim show" requests for this Rex session. Outside Rex
-  // there is no session to be found by.
+  // serve takes "rexsim show" requests for this Rex session from the start,
+  // so a second request while the pane is still starting doesn't open
+  // another pane. Outside Rex there is no session to be found by.
   private serve(): void {
     const session = process.env.REX_SESSION;
     if (!session) return;
@@ -177,6 +177,18 @@ export class App {
     } catch (err) {
       this.flash(`rexsim show can't reach this pane: ${(err as Error).message}`);
     }
+  }
+
+  // firstDevices returns the devices to show at the start: the ones named
+  // with --udid, or the booted ones. With none booted, the pane opens empty
+  // with the device list.
+  private async firstDevices(): Promise<Device[]> {
+    const devices = await listDevices(this.signal);
+    if (this.opts.ids.length > 0) return resolve(devices, this.opts.ids);
+    if (devices.length === 0) {
+      throw new Error("no simulators or emulators are available; add one in Xcode or Android Studio");
+    }
+    return devices.filter((d) => d.booted);
   }
 
   // show adds the named devices, or every booted one, and focuses the first.
@@ -191,15 +203,14 @@ export class App {
     }
 
     for (const p of this.phones.filter((p) => p.state.kind === "failed" && wanted.some((d) => d.id === p.device.id))) {
-      this.phones.splice(this.phones.indexOf(p), 1);
-      p.border.delete(this.t);
-      void p.close();
+      this.forget(p);
     }
     const fresh = wanted.filter((d) => !this.phones.some((p) => p.device.id === d.id));
     const added = this.add(fresh);
     this.focus = this.phones.find((p) => p.device.id === wanted[0].id) ?? this.focus;
     if (this.phones.length < 2) this.solo = false;
-    this.relayout();
+    if (this.sidebar) await toggleSidebar(this);
+    else this.relayout();
     const names = wanted.map(label).join(", ");
     return { ok: true, message: added.length > 0 ? `showing ${names}` : `already showing ${names}` };
   }
@@ -232,17 +243,23 @@ export class App {
     p.state = "session" in c ? { kind: "ready", session: c.session } : { kind: "failed", reason: c.err.message };
     this.relayout();
     if ("session" in c && c.session.warning) this.flash(`${p.device.name} ${c.session.warning}`);
+    if (p.state.kind === "failed") await this.offerDevices(p);
   }
 
-  // streamFailed keeps the other phones running when one stops, for example
-  // because its device shut down.
-  private streamFailed(failed: Phone, err: Error): void {
+  // streamFailed keeps the pane open when a phone stops, for example because
+  // its device shut down.
+  private async streamFailed(failed: Phone, err: Error): Promise<void> {
+    if (!this.phones.includes(failed)) return;
     failed.fail(err.message);
-    if (this.phones.some((p) => p.state.kind !== "failed")) {
-      this.flash(`${failed.device.name}: ${err.message}`);
-      return;
-    }
-    throw err;
+    this.flash(`${failed.device.name}: ${err.message}`);
+    await this.offerDevices(failed);
+  }
+
+  // offerDevices opens the device list once no phone is left running, with
+  // the one that stopped selected, so it can be restarted or another picked.
+  private async offerDevices(stopped: Phone): Promise<void> {
+    if (this.sidebar || this.phones.some((p) => p.state.kind !== "failed")) return;
+    await toggleSidebar(this, stopped.device.id);
   }
 
   updateSize(): boolean {
@@ -266,22 +283,28 @@ export class App {
 
   // detectTheme asks the terminal for its background colour (OSC 11) and
   // picks the palette that suits it. A terminal that doesn't answer gets the
-  // dark one.
+  // dark one. "rexsim show" requests wait for the main loop.
   private async detectTheme(): Promise<void> {
     this.pal = dark;
     this.t.write("\x1b]11;?\x1b\\");
     this.t.flush();
     const deadline = Date.now() + themeTimeout;
-    for (;;) {
-      const ev = await this.events.next(deadline - Date.now());
-      if (!ev || ev.kind === "quit") return;
-      if (ev.kind === "osc" && ev.text.startsWith("11;")) {
-        const c = colorOf(ev.text.slice(3));
-        if (!c) return;
-        this.background = c;
-        if (luminance(c) > 0.5) this.pal = light;
-        return;
+    const held: AppEvent[] = [];
+    try {
+      for (;;) {
+        const ev = await this.events.next(deadline - Date.now());
+        if (!ev || ev.kind === "quit") return;
+        if (ev.kind === "show") held.push(ev);
+        if (ev.kind === "osc" && ev.text.startsWith("11;")) {
+          const c = colorOf(ev.text.slice(3));
+          if (!c) return;
+          this.background = c;
+          if (luminance(c) > 0.5) this.pal = light;
+          return;
+        }
       }
+    } finally {
+      for (const ev of held) this.events.push(ev);
     }
   }
 
@@ -304,6 +327,7 @@ export class App {
     for (;;) {
       const ev = await this.events.next();
       if (ev.kind === "key" || ev.kind === "quit") return;
+      if (ev.kind === "show") ev.reply({ ok: false, error: text });
     }
   }
 
@@ -437,7 +461,7 @@ export class App {
       case "key":
         return this.key(ev);
       case "paste": {
-        const s = this.sidebar ? null : this.usable(this.focus!);
+        const s = this.sidebar || !this.focus ? null : this.usable(this.focus);
         if (s) this.report(s.text(ev.text));
         return;
       }
@@ -462,7 +486,8 @@ export class App {
         await toggleSidebar(this);
         break;
     }
-    const p = this.focus!;
+    const p = this.focus;
+    if (!p) return;
     const c = this.usable(p);
     if (!c) return;
     switch (k.name) {
@@ -493,13 +518,27 @@ export class App {
     return p.session;
   }
 
+  // forget takes a phone whose device stopped out of the pane.
+  private forget(p: Phone): void {
+    this.phones.splice(this.phones.indexOf(p), 1);
+    p.border.delete(this.t);
+    void p.close();
+  }
+
+  // restart replaces a phone whose device stopped with a new one, which boots
+  // the device again if needed.
+  restart(p: Phone): Phone {
+    this.forget(p);
+    return this.add([p.device])[0];
+  }
+
   // removePhone takes a phone out of the pane and shuts its device down.
   // The shutdown runs in the background, because it takes a second or two.
   removePhone(p: Phone): void {
     const i = this.phones.indexOf(p);
     this.phones.splice(i, 1);
     p.border.delete(this.t);
-    if (this.focus === p) this.focus = this.phones[Math.min(i, this.phones.length - 1)];
+    if (this.focus === p) this.focus = this.phones[Math.min(i, this.phones.length - 1)] ?? null;
     if (this.phones.length < 2) this.solo = false;
     void p.close().then(() => shutdown(p.device));
     markShutDown(this, p.device.id);

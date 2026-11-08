@@ -31,7 +31,14 @@ async function connect(signal: AbortSignal, d: Device, progress: (text: string) 
     const desc = await client.describe(signal);
     const screen = desc.screen;
     const hold = new Hold(screen, d.name.includes("iPad"));
-    void hold.watch(client, watching.signal);
+    // idb_companion keeps the stream open, sending nothing, once the
+    // simulator shuts down, so the watch ends it instead.
+    const gone = new AbortController();
+    void hold.watch(client, watching.signal, async () => {
+      const booted = (await simctl.devices(watching.signal)).some((x) => x.id === d.id && x.booted);
+      if (!booted) gone.abort();
+      return !booted;
+    });
     return {
       os: "iOS " + desc.osVersion.replace(/^iOS/, "").trim(),
       screen,
@@ -39,11 +46,13 @@ async function connect(signal: AbortSignal, d: Device, progress: (text: string) 
       get top() {
         return hold.top;
       },
-      stream: (signal, fps, scale, onFrame) =>
-        client.stream(signal, fps, scale, screen, (f) => {
+      stream: async (signal, fps, scale, onFrame) => {
+        const err = await client.stream(AbortSignal.any([signal, gone.signal]), fps, scale, screen, (f) => {
           hold.sideways = f.width > f.height !== screen.width > screen.height;
           onFrame({ ...f, turn: hold.turn });
-        }),
+        });
+        return gone.signal.aborted ? new Error("shut down") : err;
+      },
       touch: (x, y, down) => client.touch(...hold.unturn(x, y), down),
       rotate: async () => {
         const held = (await client.orientation()) ?? "portrait";
@@ -110,12 +119,16 @@ export class Hold {
   }
 
   // watch follows the device as something else turns it, such as a test.
-  async watch(client: Client, signal: AbortSignal): Promise<void> {
+  // When the device doesn't answer, it stops once stopped reports that the
+  // device shut down.
+  async watch(client: Client, signal: AbortSignal, stopped: () => Promise<boolean>): Promise<void> {
     while (!signal.aborted) {
       try {
         const o = await client.orientation(signal);
         if (o) this.set(o);
-      } catch {}
+      } catch {
+        if (!signal.aborted && (await stopped().catch(() => false))) return;
+      }
       await Bun.sleep(holdInterval);
     }
   }

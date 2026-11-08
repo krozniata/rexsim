@@ -19,10 +19,11 @@ export function clip(s: string, n: number): string {
 
 export function drawChrome(a: App): void {
   const s = a.size;
-  if (s.rows < 4 || s.cols < 20 || !a.focus) return;
+  if (s.rows < 4 || s.cols < 20) return;
   a.beginSync();
   drawHeader(a);
   for (const p of a.visible()) drawFrame(a, p);
+  if (a.phones.length === 0 && !a.sidebar) a.t.write(`\x1b[3;3H${sgr(a.pal.dim)}Press ⌃O to choose a device`);
   if (a.sidebar) drawSidebar(a, a.sidebar, panelCol(a), panelCol(a));
   drawFooter(a);
   a.t.write("\x1b[0m");
@@ -150,6 +151,7 @@ type Hint = [key: string, label: string];
 // act on rexsim itself.
 function hintGroups(a: App): Hint[][] {
   if (a.sidebar) return [[["↑↓", "move"], ["space", "show or hide"], ["esc", "close"]]];
+  if (!a.focus) return [[["⌃O", "devices"]]];
   const device: Hint[] = [["⌃B", "home"], ["⌃R", "rotate"], ["⌃S", "screenshot"]];
   if (a.focus?.device.platform === "android") device.splice(1, 0, ["esc", "back"]);
   let rexsim: Hint[] = [["⌃F", "focus"], ["⌃N", "next"], ["⌃O", "devices"]];

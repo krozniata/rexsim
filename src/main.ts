@@ -14,7 +14,8 @@ const usage = `usage: rexsim [flags] | rexsim show [DEVICE...] | rexsim install 
                 rexsim pane, opening one beside this pane if needed. Without a DEVICE, it shows
                 every booted one
   --udid ID     a device to show, as for show; repeat it or separate
-                them with commas to show several. Without it, rexsim asks unless one is booted
+                them with commas to show several. Without it, rexsim shows the booted ones, or
+                the device list when none is
   --agent ID    the Rex block that ^S sends screenshots to; the Rex action sets it
   -h, --help    prints this help
   -v, --version prints rexsim's version`;

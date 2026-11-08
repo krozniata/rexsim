@@ -68,11 +68,12 @@ export class Client {
 
   // stream sends frames that fit in a side by side square to onFrame until
   // signal aborts or the stream fails, and resolves with the reason it
-  // stopped. A square keeps a rotated screen as large as an upright one. The
-  // emulator sends a frame only when the screen changes, and an empty one
-  // while the display is off. Frames come as RGB, a quarter smaller than
-  // RGBA, which rexsim would only have to strip of its alpha, and turned the
-  // way the emulator is held, which onFrame gets in quarter turns clockwise.
+  // stopped: a dropped connection means the emulator shut down. A square
+  // keeps a rotated screen as large as an upright one. The emulator sends a
+  // frame only when the screen changes, and an empty one while the display is
+  // off. Frames come as RGB, a quarter smaller than RGBA, which rexsim would
+  // only have to strip of its alpha, and turned the way the emulator is
+  // held, which onFrame gets in quarter turns clockwise.
   stream(signal: AbortSignal, side: number, onFrame: (f: Frame, turns: number) => void): Promise<Error> {
     const call: grpcjs.ClientReadableStream<any> = this.svc.streamScreenshot({ format: "RGB888", width: side, height: side }, this.meta);
     return grpc.readStream(call, signal, "the emulator stopped streaming", (img) => {
@@ -81,7 +82,7 @@ export class Client {
       const pix: Uint8Array | undefined = img.image;
       if (!width || !height || !pix || pix.length < width * height * 3) return;
       onFrame({ width, height, stride: width * 3, channels: 3, pix }, Math.max(0, skins.indexOf(img.format?.rotation?.rotation)));
-    });
+    }).then((err) => ((err as grpcjs.ServiceError).code === grpcjs.status.UNAVAILABLE ? new Error("shut down") : err));
   }
 
   // turns returns how many quarter turns clockwise the emulator is held from

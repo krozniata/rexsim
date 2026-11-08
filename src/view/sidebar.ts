@@ -23,8 +23,9 @@ export function panelCol(a: App): number {
   return a.sidebar ? Math.max(0, a.size.cols - sidebarCols) : a.size.cols;
 }
 
-// toggleSidebar slides the device list in from the right, or back out.
-export async function toggleSidebar(a: App): Promise<void> {
+// toggleSidebar slides the device list in from the right, with the device
+// whose id is select selected, or back out.
+export async function toggleSidebar(a: App, select = ""): Promise<void> {
   if (a.sidebar) {
     await animate(a, () => {
       a.sidebar = null;
@@ -39,7 +40,7 @@ export async function toggleSidebar(a: App): Promise<void> {
     return;
   }
   await animate(a, () => {
-    a.sidebar = { devices, sel: 0, offset: 0 };
+    a.sidebar = { devices, sel: Math.max(0, devices.findIndex((d) => d.id === select)), offset: 0 };
   });
 }
 
@@ -47,22 +48,18 @@ function phoneFor(a: App, id: string): Phone | null {
   return a.phones.find((p) => p.device.id === id) ?? null;
 }
 
-// toggleDevice shows the selected device, booting it if needed, or hides it
-// and shuts it down, and slides the list away. Only one device starts at a
-// time.
+// toggleDevice shows the selected device, booting it if needed, restarts
+// it if it stopped, or hides it and shuts it down, and slides the list away
+// unless no device is left. Only one device starts at a time.
 async function toggleDevice(a: App): Promise<void> {
   const sb = a.sidebar!;
   if (sb.devices.length === 0) return;
   const d = sb.devices[sb.sel];
   const p = phoneFor(a, d.id);
-  if (p) {
-    if (a.phones.length === 1) {
-      a.flash("Keep one device open, or close rexsim with ⇧⌘I");
-      return;
-    }
+  if (p && p.state.kind !== "failed") {
     await animate(a, () => {
       a.removePhone(p);
-      a.sidebar = null;
+      if (a.phones.length > 0) a.sidebar = null;
     });
     return;
   }
@@ -72,7 +69,7 @@ async function toggleDevice(a: App): Promise<void> {
     return;
   }
   await animate(a, () => {
-    a.focus = a.add([d])[0];
+    a.focus = p ? a.restart(p) : a.add([d])[0];
     a.sidebar = null;
   });
 }
@@ -120,7 +117,7 @@ export async function sidebarMouse(a: App, m: Mouse): Promise<boolean> {
     drawChrome(a);
   } else if (m.button === 0) {
     const row = Math.trunc(m.y / cellHeight(a.size));
-    const e = groupEntries(sb.devices, false)[sb.offset + Math.trunc((row - listTop) / 2)];
+    const e = groupEntries(sb.devices)[sb.offset + Math.trunc((row - listTop) / 2)];
     if (row >= listTop && e?.kind === "device") {
       sb.sel = e.i;
       await toggleDevice(a);
@@ -155,7 +152,7 @@ export function drawSidebar(a: App, sb: Sidebar | null, col: number, clearFrom: 
 
   // Every entry takes two rows; a header sits on the lower one, so a blank
   // row separates it from the group above.
-  const list = groupEntries(sb.devices, false);
+  const list = groupEntries(sb.devices);
   const visible = Math.max(1, Math.trunc((s.rows - footerRows - listTop) / 2));
   sb.offset = scrollTo(list, entryOf(list, sb.sel), sb.offset, visible);
   for (let k = sb.offset; k < list.length && k < sb.offset + visible; k++) {
