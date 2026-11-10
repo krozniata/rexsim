@@ -109,10 +109,10 @@ export class Phone {
 
   // onFrame only keeps the newest raw frame. Everything runs on one thread,
   // so the conversion waits for takeLatest and is skipped for frames that a
-  // newer one replaces before they're drawn. A companion sends frames at a
-  // steady rate even when nothing changes, and an emulator repeats some, so
-  // identical ones are dropped, unless they turned. A frame is due at most fps times a second,
-  // since an emulator sends every change whatever rate it is asked for.
+  // newer one replaces before they're drawn. An emulator repeats some
+  // frames, so identical ones are dropped, unless they turned. A frame is
+  // due at most fps times a second, since a phone sends every change
+  // however fast it comes.
   private onFrame(f: Frame, ready: () => void): void {
     const sum = Bun.hash(f.pix);
     const same = sum === this.lastSum && (f.turn ?? 0) === this.lastTurn;

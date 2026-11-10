@@ -41,8 +41,8 @@ export interface Session {
   // top is the side of the screen, as it shows, that the device's top edge
   // is on, in quarter turns clockwise from the screen's top edge.
   readonly top: number;
-  // stream asks for fps frames a second, which an emulator ignores: it
-  // sends one whenever the screen changes.
+  // stream sends a frame whenever the screen changes, however fast; fps is
+  // how often the phone draws one, at most.
   stream(signal: AbortSignal, fps: number, scale: number, onFrame: (f: Frame) => void): Promise<Error>;
   touch(x: number, y: number, down: boolean): Promise<void>;
   // rotate turns the device a quarter clockwise.
