@@ -43,7 +43,7 @@ async function main(args: string[]): Promise<void> {
     },
   });
   const ids = values.udid.flatMap((s) => s.split(",")).map((u) => u.trim()).filter(Boolean);
-  await run({ ids, agent: values.agent });
+  await run({ ids, agent: values.agent, version });
 }
 
 try {

@@ -31,7 +31,7 @@
 curl -fsSL https://raw.githubusercontent.com/krozniata/rexsim/main/install.sh | sh
 ```
 
-To upgrade, run `rexsim upgrade`, or run the script again
+To upgrade, run `rexsim upgrade`
 
 ## Usage
 

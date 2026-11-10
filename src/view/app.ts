@@ -7,6 +7,7 @@ import { devices as listDevices, shutdown } from "../platforms";
 import { type InputEvent, type Key, readEvents } from "../terminal/input";
 import * as kitty from "../terminal/kitty";
 import { cellWidth, type Size, Terminal } from "../terminal/term";
+import { availableUpgrade } from "../upgrade";
 import { animate } from "./animate";
 import { drawChrome } from "./chrome";
 import { computeLayout, computeSoloLayout, emptyBox } from "./layout";
@@ -17,7 +18,7 @@ import { sendScreenshot } from "./screenshot";
 import { markShutDown, panelCol, type Sidebar, sidebarKey, toggleSidebar } from "./sidebar";
 import { colorOf, dark, light, luminance, type Palette, type RGB, sgr } from "./theme";
 
-export type Options = { ids: string[]; agent: string };
+export type Options = { ids: string[]; agent: string; version: string };
 
 export class Quit extends Error {}
 
@@ -94,6 +95,8 @@ export class App {
 
   status = "";
   statusUntil = 0;
+  // upgrade is a newer release's version, which the footer offers.
+  upgrade: string | null = null;
 
   constructor(
     readonly t: Terminal,
@@ -106,6 +109,7 @@ export class App {
     this.updateSize();
     this.t.enableInput();
     this.serve();
+    availableUpgrade(this.opts.version).then((v) => (this.upgrade = v));
     await this.detectTheme();
     this.message("Looking for devices…");
     this.focus = this.add(await this.firstDevices())[0] ?? null;

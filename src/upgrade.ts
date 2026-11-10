@@ -1,14 +1,11 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { run } from "./exec";
 
 const repo = "krozniata/rexsim";
 const asset = "rexsim-darwin-arm64.tar.gz";
 
-// newer reports whether version a is later than version b. Both are dotted
-// numbers like 0.2.1, with an optional leading v.
 export function newer(a: string, b: string): boolean {
   const parts = (v: string) => v.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
   const [x, y] = [parts(a), parts(b)];
@@ -19,13 +16,24 @@ export function newer(a: string, b: string): boolean {
   return false;
 }
 
-// latestVersion reads the newest release's version from where GitHub
-// redirects /releases/latest to, which is the same release install.sh gets.
-async function latestVersion(): Promise<string> {
-  const res = await fetch(`https://github.com/${repo}/releases/latest`, { redirect: "manual" });
+// GitHub redirects /releases/latest to the newest release's tag.
+async function latestVersion(signal?: AbortSignal): Promise<string> {
+  const res = await fetch(`https://github.com/${repo}/releases/latest`, { redirect: "manual", signal });
   const tag = /\/tag\/v?([^/]+)$/.exec(res.headers.get("location") ?? "")?.[1];
   if (!tag) throw new Error(`couldn't find the latest release of ${repo} (HTTP ${res.status})`);
   return tag;
+}
+
+// availableUpgrade resolves with a newer release's version, or null when
+// there is none or it can't tell.
+export async function availableUpgrade(current: string): Promise<string | null> {
+  if (current === "dev") return null;
+  try {
+    const latest = await latestVersion(AbortSignal.timeout(10_000));
+    return newer(latest, current) ? latest : null;
+  } catch {
+    return null;
+  }
 }
 
 async function download(url: string): Promise<Uint8Array> {
@@ -34,12 +42,9 @@ async function download(url: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-// upgrade replaces the running binary with the latest release's, downloaded
-// and checked the way install.sh does, then runs the new binary's install so
-// the Rex action and skill match it.
 export async function upgrade(current: string): Promise<void> {
   const bin = process.execPath;
-  if (current === "dev" || basename(bin) === "bun") {
+  if (current === "dev") {
     throw new Error("only a released rexsim can upgrade itself");
   }
   const latest = await latestVersion();
@@ -54,17 +59,14 @@ export async function upgrade(current: string): Promise<void> {
   const sum = new TextDecoder().decode(await download(`${url}/${asset}.sha256`)).trim().split(/\s+/)[0];
   if (createHash("sha256").update(tar).digest("hex") !== sum) throw new Error("the download has the wrong checksum");
 
-  const tmp = mkdtempSync(join(tmpdir(), "rexsim-"));
+  // macOS kills a running rexsim whose file is overwritten in place, so the
+  // new one is unpacked beside it and moved over it.
+  const tmp = mkdtempSync(join(dirname(bin), ".rexsim-"));
   try {
     writeFileSync(join(tmp, asset), tar);
     const { code, out } = await run(["tar", "-xzf", join(tmp, asset), "-C", tmp, "rexsim"]);
     if (code !== 0) throw new Error(`couldn't unpack the download: ${out}`);
-    // macOS kills a running rexsim whose file is overwritten in place, so the
-    // new binary is moved over the old one instead.
-    const next = join(dirname(bin), "rexsim.new");
-    renameSync(join(tmp, "rexsim"), next);
-    chmodSync(next, 0o755);
-    renameSync(next, bin);
+    renameSync(join(tmp, "rexsim"), bin);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
