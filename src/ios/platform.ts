@@ -46,8 +46,8 @@ async function connect(signal: AbortSignal, d: Device, progress: (text: string) 
       get top() {
         return hold.top;
       },
-      stream: async (signal, fps, scale, onFrame) => {
-        const err = await client.stream(AbortSignal.any([signal, gone.signal]), fps, scale, screen, (f) => {
+      stream: async (signal, _fps, scale, onFrame) => {
+        const err = await client.stream(AbortSignal.any([signal, gone.signal]), scale, screen, (f) => {
           hold.sideways = f.width > f.height !== screen.width > screen.height;
           onFrame({ ...f, turn: hold.turn });
         });

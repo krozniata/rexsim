@@ -8,6 +8,10 @@ import { KeyLeftShift, keysFor } from "../keys";
 
 const CompanionService = grpc.loadService(idbProto, "idb.CompanionService");
 
+// firstWait is how long a stream's first frame waits for a fresh one to
+// replace it.
+const firstWait = 100;
+
 type Hid = grpcjs.ClientWritableStream<grpc.Message>;
 
 const orientations: Record<string, Orientation> = {
@@ -56,26 +60,30 @@ export class Client {
   }
 
   // stream sends raw frames to onFrame until signal aborts or the stream
-  // fails, and resolves with the reason it stopped. The companion sends one
-  // frame per message, at a steady rate even when nothing changes. Its
-  // first is stale, and portrait even while the app is landscape, so it is
-  // skipped.
-  stream(signal: AbortSignal, fps: number, scale: number, s: Screen, onFrame: (f: Frame) => void): Promise<Error> {
+  // fails, and resolves with the reason it stopped. Asked for no frame
+  // rate, the companion sends one frame per message only when the screen
+  // changes, rather than repeat a still one 60 times a second. It starts
+  // with the screen as it is, but while an app is landscape that first
+  // frame is stale and portrait, and a fresh one follows within a few
+  // milliseconds. So the first is held back for firstWait and dropped if
+  // another comes, since a still portrait screen sends no other.
+  stream(signal: AbortSignal, scale: number, s: Screen, onFrame: (f: Frame) => void): Promise<Error> {
     const call: grpcjs.ClientDuplexStream<grpc.Message, any> = this.svc.video_stream();
-    let first = true;
+    let held: Timer | undefined;
+    let seen = false;
     const stopped = grpc.readStream(call, signal, "the simulator stopped streaming", (res) => {
       const data: Uint8Array | undefined = res.payload?.data;
       if (!data?.length) return;
-      if (first) {
-        first = false;
-        return;
-      }
       const size = frameSize(data.length, s, scale);
       if (!size) return new Error(`unexpected frame of ${data.length} bytes at scale ${scale.toFixed(2)}`);
-      onFrame({ ...size, channels: 4, pix: data });
+      const f: Frame = { ...size, channels: 4, pix: data };
+      clearTimeout(held);
+      if (seen) onFrame(f);
+      else held = setTimeout(() => onFrame(f), firstWait);
+      seen = true;
     });
-    call.write({ start: { fps, format: "RBGA", compression_quality: 1, scale_factor: scale } });
-    return stopped;
+    call.write({ start: { fps: 0, format: "RBGA", compression_quality: 1, scale_factor: scale } });
+    return stopped.finally(() => clearTimeout(held));
   }
 
   // openHid marks the stream broken once its call ends. grpc-js never passes
