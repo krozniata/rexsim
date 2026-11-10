@@ -137,12 +137,21 @@ function drawEarpiece(
 }
 
 // drawFooter shows the shortcuts that act on the device, then those that
-// act on rexsim. A status message takes their place for a moment.
+// act on rexsim, and at the right a newer release if there's room. A status
+// message takes their place for a moment.
 function drawFooter(a: App): void {
   a.t.write(`\x1b[${a.size.rows};1H\x1b[0m\x1b[2K `);
   const room = a.size.cols - 2;
-  if (Date.now() < a.statusUntil) a.t.write(sgr(a.pal.accent) + clip(a.status, room));
-  else drawHints(a, room, hintGroups(a));
+  if (Date.now() < a.statusUntil) {
+    a.t.write(sgr(a.pal.accent) + clip(a.status, room));
+    return;
+  }
+  const used = drawHints(a, room, hintGroups(a));
+  if (!a.upgrade) return;
+  const note = "Update available! Run ";
+  const cmd = "rexsim upgrade";
+  const n = width(note) + width(cmd);
+  if (used + n <= room) a.t.write(`\x1b[${a.size.rows};${a.size.cols - n}H${sgr(a.pal.upgrade)}${note}${sgr(a.pal.upgrade, "1")}${cmd}`);
 }
 
 type Hint = [key: string, label: string];
@@ -160,20 +169,21 @@ function hintGroups(a: App): Hint[][] {
 }
 
 // drawHints writes the groups with a divider between them, as many hints as
-// fit in room columns.
-function drawHints(a: App, room: number, groups: Hint[][]): void {
+// fit in room columns, and returns the columns it used.
+function drawHints(a: App, room: number, groups: Hint[][]): number {
   let used = 0;
   for (const [i, group] of groups.entries()) {
     if (i > 0) {
-      if (used + 3 > room) return;
+      if (used + 3 > room) return used;
       a.t.write(`${sgr(a.pal.frame)}│  `);
       used += 3;
     }
     for (const [key, label] of group) {
       const n = width(key) + 1 + width(label) + 3;
-      if (used + n > room) return;
+      if (used + n > room) return used;
       a.t.write(`${sgr(a.pal.text, "1")}${key} ${sgr(a.pal.dim)}${label}   `);
       used += n;
     }
   }
+  return used;
 }
