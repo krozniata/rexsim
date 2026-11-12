@@ -5,8 +5,23 @@ export type Platform = "ios" | "android";
 
 // Device is a simulator or an emulator. id is a simulator's UDID or an
 // emulator's AVD name. serial is a running emulator's adb serial, such as
-// emulator-5554, which test tools print.
-export type Device = { id: string; name: string; runtime: string; booted: boolean; platform: Platform; serial?: string };
+// emulator-5554, which test tools print. managed marks a device that another
+// tool, such as Simlock, boots, shuts down and hands out: rexsim only shows it.
+export type Device = {
+  id: string;
+  name: string;
+  runtime: string;
+  booted: boolean;
+  platform: Platform;
+  serial?: string;
+  managed?: boolean;
+};
+
+// isSimlock reports whether a simulator's name or an emulator's AVD name is
+// one that Simlock gives the devices it manages.
+export function isSimlock(nameOrId: string): boolean {
+  return /^simlock[-_]/.test(nameOrId);
+}
 
 // Screen is the size in pixels and in points, the unit touches use. An
 // Android point is a density-independent pixel.

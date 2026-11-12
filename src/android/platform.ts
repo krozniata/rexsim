@@ -8,11 +8,15 @@ import { Client } from "./emulator";
 export const android: Provider = {
   devices: () => avd.devices(),
   connect,
-  shutdown: (d) => void avd.shutdown(d.id).catch(() => {}),
+  shutdown: (d) => {
+    if (!d.managed) void avd.shutdown(d.id).catch(() => {});
+  },
 };
 
 async function connect(signal: AbortSignal, d: Device): Promise<Session> {
-  const e = avd.running(d.id) ?? (await avd.boot(signal, d.id));
+  const r = avd.running(d.id);
+  if (!r && d.managed) throw new Error("it is not running; Simlock starts it when an agent leases it");
+  const e = r ?? (await avd.boot(signal, d.id));
   const client = new Client(e.port, e.token);
   try {
     const hw = await client.waitBooted(signal);

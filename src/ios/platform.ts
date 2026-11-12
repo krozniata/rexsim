@@ -13,12 +13,17 @@ const holdInterval = 1000;
 export const ios: Provider = {
   devices: simctl.devices,
   connect,
-  shutdown: (d) => simctl.shutdown(d.id),
+  shutdown: (d) => {
+    if (!d.managed) simctl.shutdown(d.id);
+  },
 };
 
 async function connect(signal: AbortSignal, d: Device, progress: (text: string) => void): Promise<Session> {
   const bin = await companion.binary(progress);
-  if (!d.booted) await simctl.boot(signal, d.id);
+  if (!d.booted) {
+    if (d.managed) throw new Error("it is not booted; Simlock boots it when an agent leases it");
+    await simctl.boot(signal, d.id);
+  }
   const comp = await companion.start(signal, bin, d.id);
   const client = new Client(comp.socket);
   const watching = new AbortController();

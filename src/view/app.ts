@@ -536,14 +536,20 @@ export class App {
     return this.add([p.device])[0];
   }
 
-  // removePhone takes a phone out of the pane and shuts its device down.
-  // The shutdown runs in the background, because it takes a second or two.
+  // removePhone takes a phone out of the pane and shuts its device down,
+  // unless another tool manages the device. The shutdown runs in the
+  // background, because it takes a second or two.
   removePhone(p: Phone): void {
     const i = this.phones.indexOf(p);
     this.phones.splice(i, 1);
     p.border.delete(this.t);
     if (this.focus === p) this.focus = this.phones[Math.min(i, this.phones.length - 1)] ?? null;
     if (this.phones.length < 2) this.solo = false;
+    if (p.device.managed) {
+      void p.close();
+      this.flash(`Hid ${p.device.name}`);
+      return;
+    }
     void p.close().then(() => shutdown(p.device));
     markShutDown(this, p.device.id);
     this.flash(`Shutting down ${p.device.name}`);

@@ -4,12 +4,13 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { compareDevices, type Device, type Screen } from "../device";
+import { compareDevices, type Device, isSimlock, type Screen } from "../device";
 import { Client } from "./emulator";
 import { openLog, poll } from "../exec";
 
-// Running is an emulator's gRPC endpoint, from its discovery file.
-export type Running = { id: string; pid: number; port: number; token: string; serial: string };
+// Running is an emulator's gRPC endpoint, from its discovery file. dir is its
+// AVD's directory, which may be outside the AVD home, as Simlock's are.
+export type Running = { id: string; pid: number; port: number; token: string; serial: string; dir: string };
 
 export function sdkRoot(): string {
   return process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || join(homedir(), "Library", "Android", "sdk");
@@ -44,27 +45,41 @@ function readIni(path: string): Record<string, string> | null {
 }
 
 // devices lists the AVDs, booted ones first and newer Android versions
-// before older ones. Without an AVD directory there are none.
+// before older ones. Running emulators whose AVDs live outside the AVD home,
+// such as Simlock's, are listed too, as managed when Simlock made them.
 export async function devices(): Promise<Device[]> {
   const home = avdHome();
   let files: string[];
   try {
     files = readdirSync(home).filter((f) => f.endsWith(".ini"));
   } catch {
-    return [];
+    files = [];
   }
-  const serials = new Map(runningAll().map((r) => [r.id, r.serial]));
+  const running = runningAll();
+  const serials = new Map(running.map((r) => [r.id, r.serial]));
   const found: { d: Device; api: number }[] = [];
+  const add = (id: string, target: string | undefined, dir: string, booted: boolean) => {
+    const config = readIni(join(dir, "config.ini")) ?? {};
+    const api = apiLevel(target) || apiLevel(config["image.sysdir.1"]);
+    const managed = isSimlock(id);
+    const name = managed ? `simlock ${id.slice("simlock_".length)}` : config["avd.ini.displayname"] || id.replaceAll("_", " ");
+    const d: Device = { id, name, runtime: runtimeName(api), booted, platform: "android" };
+    if (serials.get(id)) d.serial = serials.get(id);
+    if (managed) d.managed = true;
+    found.push({ d, api });
+  };
+  const listed = new Set<string>();
   for (const file of files) {
     const id = file.slice(0, -".ini".length);
     const ini = readIni(join(home, file));
     if (!ini) continue;
-    const config = readIni(join(ini.path || join(home, `${id}.avd`), "config.ini")) ?? {};
-    const api = apiLevel(ini.target) || apiLevel(config["image.sysdir.1"]);
-    const name = config["avd.ini.displayname"] || id.replaceAll("_", " ");
-    const d: Device = { id, name, runtime: runtimeName(api), booted: serials.has(id), platform: "android" };
-    if (serials.get(id)) d.serial = serials.get(id);
-    found.push({ d, api });
+    listed.add(id);
+    add(id, ini.target, ini.path || join(home, `${id}.avd`), serials.has(id));
+  }
+  for (const r of running) {
+    if (listed.has(r.id) || !r.dir) continue;
+    listed.add(r.id);
+    add(r.id, undefined, r.dir, true);
   }
   found.sort((a, b) => compareDevices(a.d, b.d, b.api - a.api));
   return found.map((f) => f.d);
@@ -120,7 +135,8 @@ function runningAll(): Running[] {
     const id = ini?.["avd.id"] || ini?.["avd.name"];
     if (!ini || !port || !id) continue;
     const consolePort = Number(ini["port.serial"]);
-    result.push({ id, pid, port, token: ini["grpc.token"] ?? "", serial: consolePort ? `emulator-${consolePort}` : "" });
+    const serial = consolePort ? `emulator-${consolePort}` : "";
+    result.push({ id, pid, port, token: ini["grpc.token"] ?? "", serial, dir: ini["avd.dir"] ?? "" });
   }
   return result;
 }

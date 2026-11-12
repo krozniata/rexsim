@@ -1,5 +1,5 @@
 // Lists and boots simulators with simctl.
-import { compareDevices, type Device } from "../device";
+import { compareDevices, type Device, isSimlock } from "../device";
 import { run } from "../exec";
 
 // devices lists the available iOS simulators, booted ones first and newer
@@ -12,7 +12,13 @@ export async function devices(signal: AbortSignal): Promise<Device[]> {
   for (const [runtime, ds] of Object.entries(list.devices)) {
     const name = runtimeName(runtime);
     if (!name) continue;
-    for (const d of ds) result.push({ id: d.udid, name: d.name, runtime: name, booted: d.state === "Booted", platform: "ios" });
+    for (const d of ds) {
+      const booted = d.state === "Booted";
+      const managed = isSimlock(d.name);
+      // A managed simulator that is not booted is Simlock's spare: leave it be.
+      if (managed && !booted) continue;
+      result.push({ id: d.udid, name: d.name, runtime: name, booted, platform: "ios", ...(managed && { managed }) });
+    }
   }
   return result.sort((a, b) => compareDevices(a, b, a.runtime === b.runtime ? 0 : versionLess(b.runtime, a.runtime) ? -1 : 1));
 }
